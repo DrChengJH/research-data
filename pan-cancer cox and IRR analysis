@@ -1,0 +1,609 @@
+##basic IRR
+data_try <- incident
+combinations <- list(
+  list(group = "isolation", expr = "TRUE", var = "isolation"),
+  list(group = "loneliness", expr = "TRUE", var = "loneliness")
+)
+
+result_table <- data.frame(
+  group = character(),
+  exposure = character(),
+  N_incident = numeric(),
+  cases = numeric(),
+  person_years = numeric(),
+  incident_per_10000_person_years = numeric(),
+  IRR = character(),
+  Excess_Incidence = numeric(),
+  stringsAsFactors = FALSE
+)
+
+calculate_excess_incidence <- function(cases_exposed, person_years_exposed, cases_unexposed, person_years_unexposed) {
+  incidence_exposed <- (cases_exposed / person_years_exposed) * 10000
+  incidence_unexposed <- (cases_unexposed / person_years_unexposed) * 10000
+  excess_incidence <- incidence_exposed - incidence_unexposed
+  SE <- sqrt((incidence_exposed / cases_exposed) + (incidence_unexposed / cases_unexposed))
+  lower_CI <- excess_incidence - 1.96 * SE
+  upper_CI <- excess_incidence + 1.96 * SE
+  list(excess_incidence = excess_incidence, lower_CI = lower_CI, upper_CI = upper_CI)
+}
+
+
+for (comb in combinations) {
+  group_name <- comb$group
+  filter_expr <- comb$expr
+  group_var <- comb$var
+  
+  data <- data_try %>% dplyr::filter(eval(parse(text = filter_expr))) %>% na.omit()
+  N <- nrow(data)
+  cases <- sum(as.numeric(as.character(data$indicator)))
+  person_years <- sum(as.numeric(as.character(data$delta_years)))
+  incident_per_10000_person_years <- round((cases/person_years)*10000,0)
+  
+  data_exposed <- data_try %>% dplyr::filter(eval(parse(text = filter_expr)) & get(group_var) == 1) %>% na.omit()
+  N_exposed <- nrow(data_exposed)
+  cases_exposed <- sum(as.numeric(as.character(data_exposed$indicator)))
+  person_years_exposed <- sum(as.numeric(as.character(data_exposed$delta_years)))
+  incident_per_10000_person_years_exposed <- round((cases_exposed/person_years_exposed)*10000,0)
+  
+  data_unexposed <- data_try %>% dplyr::filter(eval(parse(text = filter_expr)) & get(group_var) == 0) %>% na.omit()
+  N_unexposed <- nrow(data_unexposed)
+  cases_unexposed <- sum(as.numeric(as.character(data_unexposed$indicator)))
+  person_years_unexposed <- sum(as.numeric(as.character(data_unexposed$delta_years)))
+  incident_per_10000_person_years_unexposed <- round((cases_unexposed/person_years_unexposed)*10000,0)
+  
+  incidence_exposed <- (cases_exposed / person_years_exposed) * 10000
+  incidence_unexposed <- (cases_unexposed / person_years_unexposed) * 10000
+  IRR <- incidence_exposed / incidence_unexposed
+  SE_log_IRR <- sqrt((1 / cases_exposed) + (1 / cases_unexposed))
+  log_IRR <- log(IRR)
+  lower_log_CI <- log_IRR - 1.96 * SE_log_IRR
+  upper_log_CI <- log_IRR + 1.96 * SE_log_IRR
+  lower_CI <- exp(lower_log_CI)
+  upper_CI <- exp(upper_log_CI)
+  
+  excess_incidence_results <- calculate_excess_incidence(cases_exposed, person_years_exposed, cases_unexposed, person_years_unexposed)
+  
+  result_table <- rbind(result_table, data.frame(
+    group = group_name,
+    exposure = "",
+    N_incident = N,
+    cases = cases,
+    person_years = person_years,
+    incident_per_10000_person_years = incident_per_10000_person_years,
+    IRR = "",
+    Excess_Incidence = ""
+  ))
+  
+  result_table <- rbind(result_table, data.frame(
+    group = "",
+    exposure = "unexpose",
+    N_incident = N_unexposed,
+    cases = cases_unexposed,
+    person_years = person_years_unexposed,
+    incident_per_10000_person_years = incident_per_10000_person_years_unexposed,
+    IRR = "1 [Reference]",
+    Excess_Incidence = "0 [Reference]"
+  ))
+  
+  result_table <- rbind(result_table, data.frame(
+    group = "",
+    exposure = "expose",
+    N_incident = N_exposed,
+    cases = cases_exposed,
+    person_years = person_years_exposed,
+    incident_per_10000_person_years = incident_per_10000_person_years_exposed,
+    IRR = paste0(round(IRR, 2), " (", round(lower_CI, 2), " to ", round(upper_CI, 2), ")"),
+    Excess_Incidence = paste0(round(excess_incidence_results$excess_incidence, 2), " (", round(excess_incidence_results$lower_CI, 2), " to ", round(excess_incidence_results$upper_CI, 2), ")")
+  ))
+}
+
+print(result_table)
+
+result_table <- rbind(result_table, data.frame(
+  group = "Joint effect",
+  exposure = "",
+  N_incident = "",
+  cases = "",
+  person_years = "",
+  incident_per_10000_person_years = "",
+  IRR = "",
+  Excess_Incidence = ""
+))
+
+data_try <- data_try %>%
+  mutate(exposure_count = case_when(
+    isolation == 1 & loneliness == 1 ~ 4,
+    isolation == 1 & loneliness == 0 ~ 3,
+    isolation == 0 & loneliness == 1 ~ 2,
+    isolation == 0 & loneliness == 0 ~ 1
+  ))
+
+jointcombine <- list(
+  list(group = "No isolation in no loneliness", expr = "1"),
+  list(group = "No isolation in loneliness", expr = "2"),
+  list(group = "Isolation in no loneliness", expr = "3"),
+  list(group = "Isolation in loneliness", expr = "4")
+)
+
+table(data_try$exposure_count)
+data_un <- filter(data_try, exposure_count == 1)
+N_un <- nrow(data_un)
+cases_un <- sum(as.numeric(as.character(data_un$indicator)))
+person_years_un <- sum(as.numeric(as.character(data_un$delta_years)))
+data_try_per_10000_person_years_un <- round((cases/person_years)*10000,0)
+
+for (var in jointcombine){
+  exposure_name <- var$group
+  expr <- var$expr
+  
+  data <- filter(data_try, exposure_count == expr)
+  N <- nrow(data)
+  cases <- sum(as.numeric(as.character(data$indicator)))
+  person_years <- sum(as.numeric(as.character(data$delta_years)))
+  data_try_per_10000_person_years <- round((cases/person_years)*10000,0)
+  
+  if (expr == 1) {
+    result_table <- rbind(result_table, data.frame(
+      group = "",
+      exposure = exposure_name,
+      N_incident = N,
+      cases = cases,
+      person_years = person_years,
+      incident_per_10000_person_years = data_try_per_10000_person_years,
+      IRR = "1 [Reference]",
+      Excess_Incidence = "0 [Reference]"
+    ))
+  } else {
+    if (exists("cases_un") && exists("person_years_un")) {
+      incidence_exposed <- (cases / person_years) * 10000
+      incidence_unexposed <- (cases_un / person_years_un) * 10000
+      IRR <- incidence_exposed / incidence_unexposed
+      SE_log_IRR <- sqrt((1 / cases) + (1 / cases_un))
+      log_IRR <- log(IRR)
+      lower_log_CI <- log_IRR - 1.96 * SE_log_IRR
+      upper_log_CI <- log_IRR + 1.96 * SE_log_IRR
+      lower_CI <- exp(lower_log_CI)
+      upper_CI <- exp(upper_log_CI)
+      
+      excess_incidence_results <- calculate_excess_incidence(cases, person_years, cases_un, person_years_un)
+      result_table <- rbind(result_table, data.frame(
+        group = "",
+        exposure = exposure_name,  
+        N_incident = N,
+        cases = cases,
+        person_years = person_years,
+        incident_per_10000_person_years = data_try_per_10000_person_years,
+        IRR = paste0(round(IRR, 2), " (", round(lower_CI, 2), " to ", round(upper_CI, 2), ")"),
+        Excess_Incidence = paste0(round(excess_incidence_results$excess_incidence, 2), " (", round(excess_incidence_results$lower_CI, 2), " to ", round(excess_incidence_results$upper_CI, 2), ")")
+      ))
+    } else {
+      stop("cases_not_found")
+    }
+  }
+}
+
+result_table
+####################################################
+ft <- flextable(result_table)
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+print(doc, target = "basic_IRR_doc.docx")
+#######################################################
+##basic cox
+data_try <- incident
+
+calculate_cox <- function(data, filter_expr, group_var, covariates) {
+  data_filtered <- data %>% filter(eval(parse(text = filter_expr))) %>% na.omit()
+  surv_obj <- Surv(time = as.numeric(as.character(data_filtered$age_entry)), 
+                   time2 = as.numeric(as.character(data_filtered$age_event)), 
+                   event = as.numeric(as.character(data_filtered$indicator)))
+  formula <- as.formula(paste("surv_obj ~", paste(c(group_var, covariates), collapse = " + ")))
+  cox_model <- coxph(formula, data = data_filtered)
+  cox_summary <- summary(cox_model)
+  HR <- cox_summary$coefficients[1, "exp(coef)"]
+  CI_lower <- cox_summary$conf.int[1, "lower .95"]
+  CI_upper <- cox_summary$conf.int[1, "upper .95"]
+  p_value <- cox_summary$coefficients[1, "Pr(>|z|)"]
+  p_value <- ifelse(p_value <= 0.001, "<0.001", sprintf("%.3f", p_value))
+  list(HR = HR, CI = paste0("[", CI_lower, "-", CI_upper, "]"), CI_lower = CI_lower, CI_upper = CI_upper, p_value = p_value)
+}
+
+#PAF
+calculate_paf <- function(hr, cases, total) {
+  paf <- ((hr - 1) / hr) * (cases / total)
+  list(paf = round(paf * 100, 2))
+}
+
+result_table <- data.frame(
+  Group = character(),
+  Variable = character(),
+  N = numeric(),
+  cases_per_10000_person_years = character(),
+  model1HR_CI = character(),
+  model2HR_CI = character(),
+  model3HR_CI = character(),
+  PAF = character(),
+  PAF_CI = character(),
+  stringsAsFactors = FALSE
+)
+
+case_person_years <- nrow(filter(incident, indicator == 1))/sum(incident$delta_years)*10000
+
+result_table_1 <- data.frame(
+  Group = "Overall",
+  Variable = "",
+  N = nrow(incident),
+  cases_per_10000_person_years = case_person_years,
+  model1HR_CI = "",
+  model2HR_CI = "",
+  model3HR_CI = "",
+  PAF = "",
+  PAF_CI = ""
+)
+result_table <- rbind(result_table,result_table_1)
+
+combinations <- list(
+  list(group = "isolation", expr = "TRUE", var = "isolation"),
+  list(group = "loneliness", expr = "TRUE", var = "loneliness")
+)
+
+for (comb in combinations) {
+  group_name <- comb$group
+  filter_expr <- comb$expr
+  group_var <- comb$var
+  print(group_var)
+  data_expose <- data_try %>% filter(eval(parse(text = filter_expr)) & data_try[[group_var]] == 1) %>% na.omit()
+  N_expose <- nrow(data_expose)
+  cases_expose <- sum(as.numeric(as.character(data_expose$indicator)))
+  person_years_expose <- round(sum(as.numeric(as.character(data_expose$age_event)) - as.numeric(as.character(data_expose$age_entry))), 2)
+  cases_person_years_expose <- round((cases_expose/person_years_expose)*10000,0)
+  
+  data_unexpose <- data_try %>% filter(eval(parse(text = filter_expr)) & data_try[[group_var]] == 0) %>% na.omit()
+  N_unexpose <- nrow(data_unexpose)
+  cases_unexpose <- sum(as.numeric(as.character(data_unexpose$indicator)))
+  person_years_unexpose <- round(sum(as.numeric(as.character(data_unexpose$age_event)) - as.numeric(as.character(data_unexpose$age_entry))), 2)
+  cases_person_years_unexpose <- round((cases_unexpose/person_years_unexpose)*10000,0)
+  
+  model1 <- calculate_cox(data_try, filter_expr, group_var, covariates_model1)
+  model2 <- calculate_cox(data_try, filter_expr, group_var, covariates_model2)
+  model3 <- calculate_cox(data_try, filter_expr, group_var, covariates_model3)
+  
+  paf3 <- calculate_paf(model3$HR, cases_expose, N_expose)
+  paf3_ci <- calculate_paf(model3$CI_lower, cases_expose, N_expose)
+  paf3_ci_upper <- calculate_paf(model3$CI_upper, cases_expose, N_expose)
+  
+  result_table <- rbind(result_table, data.frame(
+    Group = group_name,
+    Variable = "",
+    N = "",
+    cases_per_10000_person_years = "",
+    model1HR_CI = "",
+    model2HR_CI = "",
+    model3HR_CI = "",
+    PAF = sprintf("%.2f", paf3$paf),
+    PAF_CI = sprintf("[%.2f - %.2f]", paf3_ci$paf, paf3_ci_upper$paf)
+  ))
+  
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Variable = "unexpose",
+    N = N_unexpose,
+    cases_per_10000_person_years = cases_person_years_unexpose,
+    model1HR_CI = "1 [reference]",
+    model2HR_CI = "1 [reference]",
+    model3HR_CI = "1 [reference]",
+    PAF = "",
+    PAF_CI = ""
+  ))
+  
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Variable = "expose",
+    N = N_expose,
+    cases_per_10000_person_years = cases_person_years_expose,
+    model1HR_CI = paste0(round(model1$HR,2), " ", "[", round(model1$CI_lower,2), "-", round(model1$CI_upper,2), "]"),
+    model2HR_CI = paste0(round(model2$HR,2), " ", "[", round(model2$CI_lower,2), "-", round(model2$CI_upper,2), "]"),
+    model3HR_CI = paste0(round(model3$HR,2), " ", "[", round(model3$CI_lower,2), "-", round(model3$CI_upper,2), "]"),
+    PAF = "",
+    PAF_CI = ""
+  ))
+  
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Variable = "P value",
+    N = "",
+    cases_per_10000_person_years = "",
+    model1HR_CI = model1$p_value,
+    model2HR_CI = model2$p_value,
+    model3HR_CI = model3$p_value,
+    PAF = "",
+    PAF_CI = ""
+  ))
+}
+
+covariate_lists <- list(
+  model1 = covariates_model1,
+  model2 = covariates_model2,
+  model3 = covariates_model3
+)
+
+interaction_p_values <- list()
+for (model_name in names(covariate_lists)) {
+  covariates <- covariate_lists[[model_name]]
+  
+  interaction_formula <- as.formula(
+    paste("Surv(time = as.numeric(as.character(data_try$age_entry)), 
+            time2 = as.numeric(as.character(data_try$age_event)), 
+            event = as.numeric(as.character(data_try$indicator))) ~ isolation * loneliness +", 
+          paste(covariates, collapse = " + ")
+    )
+  )
+  
+  interaction_model <- coxph(interaction_formula, data = data_try)
+  addictive_isolation <- summary(interaction_model)
+  interaction_p_value <- addictive_isolation$coefficients["isolation1:loneliness1", "Pr(>|z|)"]
+  
+  interaction_p_values[[model_name]] <- ifelse(interaction_p_value <= 0.001, "<0.001", sprintf("%.3f", interaction_p_value))
+}
+
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Variable = "P for interaction",
+  N = "",
+  cases_per_10000_person_years = "",
+  model1HR_CI = interaction_p_values$model1,
+  model2HR_CI = interaction_p_values$model2,
+  model3HR_CI = interaction_p_values$model3,
+  PAF = "",
+  PAF_CI = ""
+))
+
+result_table
+
+aa <- result_table
+
+#result_table_true_save <- result_table
+
+
+data_try <- incident
+data_try <- data_try %>%
+  mutate(exposure_count = case_when(
+    isolation == 1 & loneliness == 1 ~ 4,
+    isolation == 1 & loneliness == 0 ~ 3,
+    isolation == 0 & loneliness == 1 ~ 2,
+    isolation == 0 & loneliness == 0 ~ 1
+  ))
+
+colnames(result_table)[colnames(result_table) == "PAF"] <- "paf"
+names(result_table)
+table(data_try$exposure_count)
+data_try$exposure_count_factor <- as.factor(data_try$exposure_count)
+surv_obj <- Surv(time = as.numeric(as.character(data_try$age_entry)), 
+                 time2 = as.numeric(as.character(data_try$age_event)), 
+                 event = as.numeric(as.character(data_try$indicator)))
+
+##factor_model1
+formula_1 <- as.formula(paste("surv_obj ~ exposure_count_factor + ", paste(covariates_model1, collapse = " + ")))
+print(formula_1)
+cox_model_1 <- coxph(formula_1, data = data_try)
+cox_summary_1 <- summary(cox_model_1)
+cox_summary_1
+
+HR_2_1 <- cox_summary_1$coefficients[1, "exp(coef)"]
+CI_lower_2_1 <- cox_summary_1$conf.int[1, "lower .95"]
+CI_upper_2_1 <- cox_summary_1$conf.int[1, "upper .95"]
+p_value_2_1 <- cox_summary_1$coefficients[1, "Pr(>|z|)"]
+p_value_2_1 <- ifelse(p_value_2_1 <= 0.001, "<0.001", sprintf("%.3f", p_value_2_1))
+result_21 <- list(HR = HR_2_1, CI = paste0("[", CI_lower_2_1, "-", CI_upper_2_1, "]"), CI_lower = CI_lower_2_1, CI_upper = CI_upper_2_1, p_value = p_value_2_1)
+
+HR_3_1 <- cox_summary_1$coefficients[2, "exp(coef)"]
+CI_lower_3_1 <- cox_summary_1$conf.int[2, "lower .95"]
+CI_upper_3_1 <- cox_summary_1$conf.int[2, "upper .95"]
+p_value_3_1 <- cox_summary_1$coefficients[2, "Pr(>|z|)"]
+p_value_3_1 <- ifelse(p_value_3_1 <= 0.001, "<0.001", sprintf("%.3f", p_value_3_1))
+result_31 <- list(HR = HR_3_1, CI = paste0("[", CI_lower_3_1, "-", CI_upper_3_1, "]"), CI_lower = CI_lower_3_1, CI_upper = CI_upper_3_1, p_value = p_value_3_1)
+
+HR_4_1 <- cox_summary_1$coefficients[3, "exp(coef)"]
+CI_lower_4_1 <- cox_summary_1$conf.int[3, "lower .95"]
+CI_upper_4_1 <- cox_summary_1$conf.int[3, "upper .95"]
+p_value_4_1 <- cox_summary_1$coefficients[3, "Pr(>|z|)"]
+p_value_4_1 <- ifelse(p_value_4_1 <= 0.001, "<0.001", sprintf("%.3f", p_value_4_1))
+result_41 <- list(HR = HR_4_1, CI = paste0("[", CI_lower_4_1, "-", CI_upper_4_1, "]"), CI_lower = CI_lower_4_1, CI_upper = CI_upper_4_1, p_value = p_value_4_1)
+
+##factor_model2
+formula_2 <- as.formula(paste("surv_obj ~ exposure_count_factor + ", paste(covariates_model2, collapse = " + ")))
+print(formula_2)
+cox_model_2 <- coxph(formula_2, data = data_try)
+cox_summary_2 <- summary(cox_model_2)
+cox_summary_2
+
+HR_2_2 <- cox_summary_2$coefficients[1, "exp(coef)"]
+CI_lower_2_2 <- cox_summary_2$conf.int[1, "lower .95"]
+CI_upper_2_2 <- cox_summary_2$conf.int[1, "upper .95"]
+p_value_2_2 <- cox_summary_2$coefficients[1, "Pr(>|z|)"]
+p_value_2_2 <- ifelse(p_value_2_2 <= 0.001, "<0.001", sprintf("%.3f", p_value_2_2))
+result_22 <- list(HR = HR_2_2, CI = paste0("[", CI_lower_2_2, "-", CI_upper_2_2, "]"), CI_lower = CI_lower_2_2, CI_upper = CI_upper_2_2, p_value = p_value_2_2)
+
+HR_3_2 <- cox_summary_2$coefficients[2, "exp(coef)"]
+CI_lower_3_2 <- cox_summary_2$conf.int[2, "lower .95"]
+CI_upper_3_2 <- cox_summary_2$conf.int[2, "upper .95"]
+p_value_3_2 <- cox_summary_2$coefficients[2, "Pr(>|z|)"]
+p_value_3_2 <- ifelse(p_value_3_2 <= 0.001, "<0.001", sprintf("%.3f", p_value_3_2))
+result_32 <- list(HR = HR_3_2, CI = paste0("[", CI_lower_3_2, "-", CI_upper_3_2, "]"), CI_lower = CI_lower_3_2, CI_upper = CI_upper_3_2, p_value = p_value_3_2)
+
+HR_4_2 <- cox_summary_2$coefficients[3, "exp(coef)"]
+CI_lower_4_2 <- cox_summary_2$conf.int[3, "lower .95"]
+CI_upper_4_2 <- cox_summary_2$conf.int[3, "upper .95"]
+p_value_4_2 <- cox_summary_2$coefficients[3, "Pr(>|z|)"]
+p_value_4_2 <- ifelse(p_value_4_2 <= 0.001, "<0.001", sprintf("%.3f", p_value_4_2))
+result_42 <- list(HR = HR_4_2, CI = paste0("[", CI_lower_4_2, "-", CI_upper_4_2, "]"), CI_lower = CI_lower_4_2, CI_upper = CI_upper_4_2, p_value = p_value_4_2)
+
+##factor model3
+formula_3 <- as.formula(paste("surv_obj ~ exposure_count_factor + ", paste(covariates_model3, collapse = " + ")))
+print(formula_3)
+cox_model_3 <- coxph(formula_3, data = data_try)
+cox_summary_3 <- summary(cox_model_3)
+cox_summary_3
+
+HR_2_3 <- cox_summary_3$coefficients[1, "exp(coef)"]
+CI_lower_2_3 <- cox_summary_3$conf.int[1, "lower .95"]
+CI_upper_2_3 <- cox_summary_3$conf.int[1, "upper .95"]
+p_value_2_3 <- cox_summary_3$coefficients[1, "Pr(>|z|)"]
+p_value_2_3 <- ifelse(p_value_2_3 <= 0.001, "<0.001", sprintf("%.3f", p_value_2_3))
+result_23 <- list(HR = HR_2_3, CI = paste0("[", CI_lower_2_3, "-", CI_upper_2_3, "]"), CI_lower = CI_lower_2_3, CI_upper = CI_upper_2_3, p_value = p_value_2_3)
+
+HR_3_3 <- cox_summary_3$coefficients[2, "exp(coef)"]
+CI_lower_3_3 <- cox_summary_3$conf.int[2, "lower .95"]
+CI_upper_3_3 <- cox_summary_3$conf.int[2, "upper .95"]
+p_value_3_3 <- cox_summary_3$coefficients[2, "Pr(>|z|)"]
+p_value_3_3 <- ifelse(p_value_3_3 <= 0.001, "<0.001", sprintf("%.3f", p_value_3_3))
+result_33 <- list(HR = HR_3_3, CI = paste0("[", CI_lower_3_3, "-", CI_upper_3_3, "]"), CI_lower = CI_lower_3_3, CI_upper = CI_upper_3_3, p_value = p_value_3_3)
+
+HR_4_3 <- cox_summary_3$coefficients[3, "exp(coef)"]
+CI_lower_4_3 <- cox_summary_3$conf.int[3, "lower .95"]
+CI_upper_4_3 <- cox_summary_3$conf.int[3, "upper .95"]
+p_value_4_3 <- cox_summary_3$coefficients[3, "Pr(>|z|)"]
+p_value_4_3 <- ifelse(p_value_4_3 <= 0.001, "<0.001", sprintf("%.3f", p_value_4_3))
+result_43 <- list(HR = HR_4_3, CI = paste0("[", CI_lower_4_3, "-", CI_upper_4_3, "]"), CI_lower = CI_lower_4_3, CI_upper = CI_upper_4_3, p_value = p_value_4_3)
+
+#model1
+con_formula_1 <- as.formula(paste("surv_obj ~ exposure_count + ", paste(covariates_model1, collapse = " + ")))
+print(con_formula_1)
+con_cox_model_1 <- coxph(con_formula_1, data = data_try)
+con_cox_summary_1 <- summary(con_cox_model_1)
+con_cox_summary_1
+
+con_p_value1 <- con_cox_summary_1$coefficients[1, "Pr(>|z|)"]
+con_p_value1 <- ifelse(con_p_value1 <= 0.001, "<0.001", sprintf("%.3f", con_p_value1))
+
+#model2
+con_formula_2 <- as.formula(paste("surv_obj ~ exposure_count + ", paste(covariates_model2, collapse = " + ")))
+print(con_formula_2)
+con_cox_model_2 <- coxph(con_formula_2, data = data_try)
+con_cox_summary_2 <- summary(con_cox_model_2)
+con_cox_summary_2
+
+con_p_value2 <- con_cox_summary_2$coefficients[1, "Pr(>|z|)"]
+con_p_value2 <- ifelse(con_p_value2 <= 0.001, "<0.001", sprintf("%.3f", con_p_value2))
+
+#model3
+con_formula_3 <- as.formula(paste("surv_obj ~ exposure_count + ", paste(covariates_model3, collapse = " + ")))
+print(con_formula_3)
+con_cox_model_3 <- coxph(con_formula_3, data = data_try)
+con_cox_summary_3 <- summary(con_cox_model_3)
+con_cox_summary_3
+
+con_HR3 <- con_cox_summary_3$coefficients[1, "exp(coef)"]
+con_CI_lower3 <- con_cox_summary_3$conf.int[1, "lower .95"]
+con_CI_upper3 <- con_cox_summary_3$conf.int[1, "upper .95"]
+con_p_value3 <- con_cox_summary_3$coefficients[1, "Pr(>|z|)"]
+con_p_value3 <- ifelse(con_p_value3 <= 0.001, "<0.001", sprintf("%.3f", con_p_value3))
+con_result3 <- list(HR = con_HR3, CI = paste0("[", con_CI_lower3, "-", con_CI_upper3, "]"), CI_lower = con_CI_lower3, CI_upper = con_CI_upper3, p_value = con_p_value3)
+
+paf3 <- calculate_paf(con_result3$HR, cases_expose, N_expose)
+paf3_ci_lower <- calculate_paf(con_result3$CI_lower, cases_expose, N_expose)
+paf3_ci_upper <- calculate_paf(con_result3$CI_upper, cases_expose, N_expose)
+
+##title
+result_table <- rbind(result_table,data.frame(
+  Group = "Joint Effect",
+  Variable = "",
+  N = "",
+  cases_per_10000_person_years = "",
+  model1HR_CI = "",
+  model2HR_CI = "",
+  model3HR_CI = "",
+  PAF = paf3,
+  PAF_CI = sprintf("[%.2f - %.2f]", paf3_ci_lower$paf, paf3_ci_upper$paf),
+  stringsAsFactors = FALSE
+))
+
+#ref
+ref_data <- data_try %>% filter(exposure_count == 1) %>% na.omit()
+cases_expose <- sum(as.numeric(as.character(ref_data$indicator)))
+person_years_expose <- round(sum(as.numeric(as.character(ref_data$age_event)) - as.numeric(as.character(ref_data$age_entry))), 2)
+cases_person_years_expose <- round((cases_expose/person_years_expose)*10000,0)
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Variable = "No isolation in no loneliness",
+  N = nrow(ref_data),
+  cases_per_10000_person_years = cases_person_years_expose,
+  model1HR_CI = "1 [reference]",
+  model2HR_CI = "1 [reference]",
+  model3HR_CI = "1 [reference]",
+  paf = "",
+  PAF_CI = ""
+))
+
+#2
+ref_data <- data_try %>% filter(exposure_count == 2) %>% na.omit()
+cases_expose <- sum(as.numeric(as.character(ref_data$indicator)))
+person_years_expose <- round(sum(as.numeric(as.character(ref_data$age_event)) - as.numeric(as.character(ref_data$age_entry))), 2)
+cases_person_years_expose <- round((cases_expose/person_years_expose)*10000,0)
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Variable = "No isolation in loneliness",
+  N = nrow(ref_data),
+  cases_per_10000_person_years = cases_person_years_expose,
+  model1HR_CI = paste0(round(result_21$HR,2), " ", "[", round(result_21$CI_lower,2), "-", round(result_21$CI_upper,2), "]"),
+  model2HR_CI = paste0(round(result_22$HR,2), " ", "[", round(result_22$CI_lower,2), "-", round(result_22$CI_upper,2), "]"),
+  model3HR_CI = paste0(round(result_23$HR,2), " ", "[", round(result_23$CI_lower,2), "-", round(result_23$CI_upper,2), "]"),
+  paf = "",
+  PAF_CI = ""
+))
+
+##3
+ref_data <- data_try %>% filter(exposure_count == 3) %>% na.omit()
+cases_expose <- sum(as.numeric(as.character(ref_data$indicator)))
+person_years_expose <- round(sum(as.numeric(as.character(ref_data$age_event)) - as.numeric(as.character(ref_data$age_entry))), 2)
+cases_person_years_expose <- round((cases_expose/person_years_expose)*10000,0)
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Variable = "Isolation in no loneliness",
+  N = nrow(ref_data),
+  cases_per_10000_person_years = cases_person_years_expose,
+  model1HR_CI = paste0(round(result_31$HR,2), " ", "[", round(result_31$CI_lower,2), "-", round(result_31$CI_upper,2), "]"),
+  model2HR_CI = paste0(round(result_32$HR,2), " ", "[", round(result_32$CI_lower,2), "-", round(result_32$CI_upper,2), "]"),
+  model3HR_CI = paste0(round(result_33$HR,2), " ", "[", round(result_33$CI_lower,2), "-", round(result_33$CI_upper,2), "]"),
+  paf = "",
+  PAF_CI = ""
+))
+
+#4
+ref_data <- data_try %>% filter(exposure_count == 4) %>% na.omit()
+cases_expose <- sum(as.numeric(as.character(ref_data$indicator)))
+person_years_expose <- round(sum(as.numeric(as.character(ref_data$age_event)) - as.numeric(as.character(ref_data$age_entry))), 2)
+cases_person_years_expose <- round((cases_expose/person_years_expose)*10000,0)
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Variable = "Isolation in loneliness",
+  N = nrow(ref_data),
+  cases_per_10000_person_years = cases_person_years_expose,
+  model1HR_CI = paste0(round(result_41$HR,2), " ", "[", round(result_41$CI_lower,2), "-", round(result_41$CI_upper,2), "]"),
+  model2HR_CI = paste0(round(result_42$HR,2), " ", "[", round(result_42$CI_lower,2), "-", round(result_42$CI_upper,2), "]"),
+  model3HR_CI = paste0(round(result_43$HR,2), " ", "[", round(result_43$CI_lower,2), "-", round(result_43$CI_upper,2), "]"),
+  paf = "",
+  PAF_CI = ""
+))
+
+#p trend
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Variable = "P trend",
+  N = "",
+  cases_per_10000_person_years = "",
+  model1HR_CI = con_p_value1,
+  model2HR_CI = con_p_value2,
+  model3HR_CI = con_p_value3,
+  paf = "",
+  PAF_CI = ""
+))
+
+result_table
+
+ft <- flextable(result_table)
+ft
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "basic_cox_doc.docx")
