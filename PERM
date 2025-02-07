@@ -1,0 +1,202 @@
+calculate_hr_perm <- function(data, population = "all", exposure = "isolation") {
+  if (population == "male") {
+    data <- subset(data, Sex == "Male")
+  } else if (population == "female") {
+    data <- subset(data, Sex == "Female")
+  }
+  
+  baseline_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex, data = data)
+  print(summary(baseline_model))
+  hr_baseline <- summary(baseline_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_baseline <- summary(baseline_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  
+  print("baseline_model")
+  
+  socioeconomic_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + Income + Education + Employment + Townsend_deprivation_index, data = data)
+  hr_socioeconomic <- summary(socioeconomic_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_socioeconomic <- summary(socioeconomic_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_socioeconomic <- (hr_baseline - hr_socioeconomic) / (hr_baseline - 1) * 100
+  print("socioeconomic_model")
+  
+  behavioral_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + Smoking_status + Alcohol_status + diet_score + day_exposure, data = data)
+  hr_behavioral <- summary(behavioral_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_behavioral <- summary(behavioral_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_behavioral <- (hr_baseline - hr_behavioral) / (hr_baseline - 1) * 100
+  print("behavioral_model")
+  
+  physical_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + BMI + Diastolic_blood_pressure + Systolic_blood_pressure + Hand_grip, data = data)
+  hr_physical <- summary(physical_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_physical <- summary(physical_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_physical <- (hr_baseline - hr_physical) / (hr_baseline - 1) * 100
+  print("physical_model")
+  
+  mental_health_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + depress_mood, data = data)
+  hr_mental_health <- summary(mental_health_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_mental_health <- summary(mental_health_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_mental_health <- (hr_baseline - hr_mental_health) / (hr_baseline - 1) * 100
+  print("mental_health_model")
+  
+  overall_health_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + Overall_health_rating, data = data)
+  hr_overall_health <- summary(overall_health_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_overall_health <- summary(overall_health_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_overall_health <- (hr_baseline - hr_overall_health) / (hr_baseline - 1) * 100
+  print("overall_health_model")
+  
+  Family_cancer_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + Family_cancer, data = data)
+  hr_Family_cancer <- summary(Family_cancer_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_Family_cancer <- summary(Family_cancer_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_Family_cancer <- (hr_baseline - hr_Family_cancer) / (hr_baseline - 1) * 100
+  print("Family_cancer_model")
+  
+  geographic_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + Age + Sex + UK_Center, data = data)
+  hr_geographic <- summary(geographic_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_geographic <- summary(geographic_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_geographic <- (hr_baseline - hr_geographic) / (hr_baseline - 1) * 100
+  print("geographic_model")
+  
+  full_model <- coxph(Surv(age_entry, age_event, indicator) ~ isolation + 
+                        Age + Sex + Income + Education + Employment + Townsend_deprivation_index +
+                        Smoking_status + Alcohol_status + diet_score + day_exposure +
+                        BMI + Diastolic_blood_pressure + Systolic_blood_pressure + Hand_grip +
+                        depress_mood + Overall_health_rating + Family_cancer +
+                        UK_Center, data = data)
+  hr_full <- summary(full_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_full <- summary(full_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_full <- (hr_baseline - hr_full) / (hr_baseline - 1) * 100
+  print("full_model")
+  
+  results <- data.frame(
+    Adjustment = c("Minimally", "Socioeconomic", "Behavioral", "Physical Health", "Mental Health", "Overall Health", "Family History", "Geographical Factors", "ALL"),
+    HR = c(hr_baseline, hr_socioeconomic, hr_behavioral, hr_physical, hr_mental_health, hr_overall_health, hr_Family_cancer, hr_geographic, hr_full),
+    Lower = c(ci_baseline[1], ci_socioeconomic[1], ci_behavioral[1], ci_physical[1], ci_mental_health[1], ci_overall_health[1], ci_Family_cancer[1], ci_geographic[1], ci_full[1]),
+    Upper = c(ci_baseline[2], ci_socioeconomic[2], ci_behavioral[2], ci_physical[2], ci_mental_health[2], ci_overall_health[2], ci_Family_cancer[2], ci_geographic[2], ci_full[2]),
+    PERM = c("", perm_socioeconomic, perm_behavioral, perm_physical, perm_mental_health, perm_overall_health, perm_Family_cancer, perm_geographic, perm_full)
+  )
+  
+  return(results)
+}
+
+results_all_isolation <- calculate_hr_perm(data = incident, population = "all", exposure = "isolation")
+results_male_isolation <- calculate_hr_perm(data = incident, population = "male", exposure = "isolation")
+results_female_isolation <- calculate_hr_perm(data = incident, population = "female", exposure = "isolation")
+
+calculate_hr_perm <- function(data, population = "all", exposure = "loneliness") {
+  if (population == "male") {
+    data <- subset(data, Sex == "Male")
+  } else if (population == "female") {
+    data <- subset(data, Sex == "Female")
+  }
+  
+  baseline_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex, data = data)
+  print(summary(baseline_model))
+  hr_baseline <- summary(baseline_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_baseline <- summary(baseline_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  
+  print("baseline_model")
+  
+  socioeconomic_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + Income + Education + Employment + Townsend_deprivation_index, data = data)
+  hr_socioeconomic <- summary(socioeconomic_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_socioeconomic <- summary(socioeconomic_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_socioeconomic <- (hr_baseline - hr_socioeconomic) / (hr_baseline - 1) * 100
+  print("socioeconomic_model")
+  
+  behavioral_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + Smoking_status + Alcohol_status + diet_score + day_exposure, data = data)
+  hr_behavioral <- summary(behavioral_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_behavioral <- summary(behavioral_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_behavioral <- (hr_baseline - hr_behavioral) / (hr_baseline - 1) * 100
+  print("behavioral_model")
+  
+  physical_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + BMI + Diastolic_blood_pressure + Systolic_blood_pressure + Hand_grip, data = data)
+  hr_physical <- summary(physical_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_physical <- summary(physical_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_physical <- (hr_baseline - hr_physical) / (hr_baseline - 1) * 100
+  print("physical_model")
+  
+  mental_health_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + depress_mood, data = data)
+  hr_mental_health <- summary(mental_health_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_mental_health <- summary(mental_health_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_mental_health <- (hr_baseline - hr_mental_health) / (hr_baseline - 1) * 100
+  print("mental_health_model")
+  
+  overall_health_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + Overall_health_rating, data = data)
+  hr_overall_health <- summary(overall_health_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_overall_health <- summary(overall_health_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_overall_health <- (hr_baseline - hr_overall_health) / (hr_baseline - 1) * 100
+  print("overall_health_model")
+  
+  Family_cancer_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + Family_cancer, data = data)
+  hr_Family_cancer <- summary(Family_cancer_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_Family_cancer <- summary(Family_cancer_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_Family_cancer <- (hr_baseline - hr_Family_cancer) / (hr_baseline - 1) * 100
+  print("Family_cancer_model")
+  
+  geographic_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + Age + Sex + UK_Center, data = data)
+  hr_geographic <- summary(geographic_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_geographic <- summary(geographic_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_geographic <- (hr_baseline - hr_geographic) / (hr_baseline - 1) * 100
+  print("geographic_model")
+  
+  full_model <- coxph(Surv(age_entry, age_event, indicator) ~ loneliness + 
+                        Age + Sex + Income + Education + Employment + Townsend_deprivation_index +
+                        Smoking_status + Alcohol_status + diet_score + day_exposure +
+                        BMI + Diastolic_blood_pressure + Systolic_blood_pressure + Hand_grip +
+                        depress_mood + Overall_health_rating + Family_cancer +
+                        UK_Center, data = data)
+  hr_full <- summary(full_model)$coefficients[paste0(exposure, "1"), "exp(coef)"]
+  ci_full <- summary(full_model)$conf.int[paste0(exposure, "1"), c("lower .95", "upper .95")]
+  perm_full <- (hr_baseline - hr_full) / (hr_baseline - 1) * 100
+  print("full_model")
+  
+  results <- data.frame(
+    Adjustment = c("Minimally", "Socioeconomic", "Behavioral", "Physical Health", "Mental Health", "Overall Health", "Family History", "Geographical Factors", "ALL"),
+    HR = c(hr_baseline, hr_socioeconomic, hr_behavioral, hr_physical, hr_mental_health, hr_overall_health, hr_Family_cancer, hr_geographic, hr_full),
+    Lower = c(ci_baseline[1], ci_socioeconomic[1], ci_behavioral[1], ci_physical[1], ci_mental_health[1], ci_overall_health[1], ci_Family_cancer[1], ci_geographic[1], ci_full[1]),
+    Upper = c(ci_baseline[2], ci_socioeconomic[2], ci_behavioral[2], ci_physical[2], ci_mental_health[2], ci_overall_health[2], ci_Family_cancer[2], ci_geographic[2], ci_full[2]),
+    PERM = c("", perm_socioeconomic, perm_behavioral, perm_physical, perm_mental_health, perm_overall_health, perm_Family_cancer, perm_geographic, perm_full)
+  )
+  
+  return(results)
+}
+
+results_all_loneliness <- calculate_hr_perm(data = incident, population = "all", exposure = "loneliness")
+results_male_loneliness <- calculate_hr_perm(data = incident, population = "male", exposure = "loneliness")
+results_female_loneliness <- calculate_hr_perm(data = incident, population = "female", exposure = "loneliness")
+
+
+plot_forest <- function(dt, xlim_range = c(0.9, 1.3), ticks_at = c(0.9, 1.0, 1.1, 1.2), file_name = NULL) {
+  
+  dt$"HR (95% CI)" <- ifelse(is.na(dt$HR), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     dt$HR, dt$Lower, dt$Upper))
+  
+  dt$PERM <- ifelse(is.na(dt$PERM), "  ", as.character(round(as.numeric(dt$PERM), 1)))
+  
+  dt$` ` <- "            "
+  
+  print(names(dt))
+  p <- forest(
+    data = dt[, c(1,7,6,5)],  
+    lower = dt$Lower,  
+    upper = dt$Upper,  
+    est = dt$HR,  
+    ci_column = 2,  
+    ref_line = 1,   
+    xlim = xlim_range,  
+    ticks_at = ticks_at
+  )
+  
+    if (!is.null(file_name)) {
+    pdf(file = file_name, width = 100, height = 100)  
+    plot(p)
+    dev.off()
+  } else {
+    plot(p)  
+  }
+}
+
+plot_forest(results_all_isolation, xlim_range = c(0.8, 1.4), ticks_at = c(0.8, 1.0, 1.2, 1.4), file_name = "all_isolation_PERM.pdf")
+plot_forest(results_male_isolation, xlim_range = c(0.8, 1.4), ticks_at = c(0.8, 1.0, 1.2, 1.4), file_name = "male_isolation_PERM.pdf")
+plot_forest(results_female_isolation, xlim_range = c(0.8, 1.4), ticks_at = c(0.8, 1.0, 1.2, 1.4), file_name = "female_isolation_PERM.pdf")
+plot_forest(results_all_loneliness, xlim_range = c(0.8, 1.4), ticks_at = c(0.8, 1.0, 1.2, 1.4), file_name = "all_loneliness_PERM.pdf")
+plot_forest(results_male_loneliness, xlim_range = c(0.8, 1.4), ticks_at = c(0.8, 1.0, 1.2, 1.4), file_name = "male_loneliness_PERM.pdf")
+plot_forest(results_female_loneliness, xlim_range = c(0.8, 1.4), ticks_at = c(0.8, 1.0, 1.2, 1.4), file_name = "female_loneliness_PERM.pdf")
