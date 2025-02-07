@@ -1,0 +1,29 @@
+person_years = sum(incident$delta_years)
+df_result <- incident %>%
+  group_by(cancer_name) %>%
+  summarise(
+    total_cases = n(),
+    male_cases = sum(Sex == 'Male'),
+    female_cases = sum(Sex == 'Female')
+  ) %>%
+  mutate(
+    male_percentage = male_cases / total_cases * 100,
+    female_percentage = female_cases / total_cases * 100,
+    male_cases = ifelse(male_cases == 0, NA, paste0(male_cases, " (", round(male_percentage, 1), "%)")),
+    female_cases = ifelse(female_cases == 0, NA, paste0(female_cases, " (", round(female_percentage, 1), "%)"))
+  ) %>%
+  mutate(
+    case_per_10000_person_years = (total_cases/person_years)*10000
+  )
+
+df_result
+result <- df_result[,c(1,2,3,4,7)]
+
+table(incident$cancer_name)
+ft <- flextable(result)
+ft
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "cancer_distribution.docx")
