@@ -1,0 +1,241 @@
+setwd("E:/Desktop/analysis/origin data/origin")
+cancer_origin <- read.csv("cancer_original.csv")
+  
+cancer_comp_origin <- filter(cancer_origin, is.na(cancer_origin$Reported.occurrences.of.cancer...Instance.0))
+cancer_comp_origin <- cancer_comp_origin[1]
+cancer_comp_origin$indicator <- 0
+  
+##########################################
+  
+age_data <- read.csv("covariate_mdmed.csv")
+age_data <- age_data[,c(1,5)]
+age_data <- dplyr::rename(age_data, "age_entry" = "Age.at.recruitment")
+  
+#######################################################
+  
+end_message <- read_xlsx("follow_up_time （2022-6-1）.xlsx")
+end_message_clean <- end_message[,c(1,3,4)]
+end_message_clean <- dplyr::rename(end_message_clean, "Participant.ID" = "Participant ID")
+  
+############################
+  
+#merge
+compare_media <- merge(cancer_comp_origin, age_data)
+compare_media <- merge(compare_media, end_message_clean)
+
+compare_media$age_event <- compare_media$age_entry + compare_media$follow_up_time_year
+outcome_compare <- compare_media[,c(1,2,3,6,4,5)] 
+outcome_compare$cancer_name <- NA
+outcome_compare$cancer_sub_type <- NA
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(outcome_compare, "outcome_compare.rds")
+saveRDS(end_message, "end_message.rds")
+
+setwd("E:/Desktop/analysis/origin data/origin")
+cc <- cancer_origin
+  
+########################################################
+  
+cc_experimental <- cc %>%
+  filter(!is.na(`Reported.occurrences.of.cancer...Instance.0`))
+  
+#############################################################
+  
+select_first_C_cancer <- function(data) {
+  result <- data.frame(
+    Participant_ID = character(),
+    ICD10code = character(),
+    diagnosis_time = character(),
+    cancer_sub_type = character(),
+    Cancer_Behaviour = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in 1:nrow(data)) {
+    participant_id <- data$Participant.ID[i]
+    
+    icd10_codes <- data[i, grep("Type.of.cancer..ICD10", names(data))]
+    
+    C_indices <- which(startsWith(as.character(icd10_codes), "C") & !grepl("^C44",as.character(icd10_codes)))
+    
+    if (length(C_indices) > 0) {
+      first_C_index <- C_indices[1]
+      instance_suffix <- sub("Type.of.cancer..ICD10...Instance.", "", names(icd10_codes)[first_C_index])
+      
+      diagnosis_time <- data[[paste0("Date.of.cancer.diagnosis...Instance.", instance_suffix)]][i]
+      cancer_sub_type <- data[[paste0("Histology.of.cancer.tumour...Instance.", instance_suffix)]][i]
+      cancer_behaviour <- data[[paste0("Behaviour.of.cancer.tumour...Instance.", instance_suffix)]][i]
+      
+      new_row <- data.frame(
+        Participant_ID = participant_id,
+        ICD10code = as.character(icd10_codes[first_C_index]),
+        diagnosis_time = diagnosis_time,
+        cancer_sub_type = cancer_sub_type,
+        Cancer_Behaviour = cancer_behaviour,
+        stringsAsFactors = FALSE
+      )
+      
+      result <- rbind(result, new_row)
+    }
+  }
+  return(result)
+}
+
+cc_experimental_C_selected <- select_first_C_cancer(cc_experimental)
+
+cc_experimental_C_selected_plus <- cc_experimental_C_selected %>%
+  separate(ICD10code, into = c("ICD_Code", "Description"), sep = " ", extra = "merge", fill = "right")
+table(cc_experimental_C_selected_plus$ICD_Code)
+
+cc_filted <- cc_experimental_C_selected_plus[1]
+cc_origin <- cc_experimental[1]
+
+cc_filted <- dplyr::rename(cc_filted, "Participant.ID" = "Participant_ID")
+
+cc_diff <- anti_join(cc_origin, cc_filted, by = "Participant.ID")
+
+cc_compare <- merge(cc_diff, end_message_clean)
+cc_compare <- merge(cc_compare, age_data)
+
+cc_compare$age_entry <- as.numeric(cc_compare$age_entry)
+cc_compare$age_event <- cc_compare$age_entry + cc_compare$follow_up_time_year
+cc_compare$age_entry <- cc_compare$age_entry
+names(cc_compare)
+cc_compare$indicator <- 0
+cc_compare$cancer_name <- NA
+cc_compare$cancer_sub_type <- NA
+
+cc_compare <- cc_compare[,c(1,6,4,5,2,3,7,8)] 
+names(cc_compare)
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(cc_compare, "cc_compare.rds")
+
+saveRDS(cc_experimental_C_selected_plus, "cancer_exp_chosen_first_diagnosis_origin.rds")
+cc_experimental_C_selected_plus <- readRDS("cancer_exp_chosen_first_diagnosis_origin.rds")
+cc_experimental_C_selected_plus <- cc_experimental_C_selected_plus %>%
+  mutate(
+    ICD_Code_Cxx = sub("\\..*$", "", ICD_Code))
+cc_experimental_C_selected_plus <- dplyr::rename(cc_experimental_C_selected_plus, "Cancer_Code" = "ICD_Code_Cxx")
+  
+################################
+  
+#combine name
+cancer_type_mapping <- c(
+  "C18" = "Colorectal cancer", "C19" = "Colorectal cancer", 
+  "C20" = "Colorectal cancer", "C81" = "Lymphoma", 
+  "C82" = "Lymphoma", "C83" = "Lymphoma", 
+  "C84" = "Lymphoma", "C85" = "Lymphoma", 
+  "C86" = "Lymphoma", "C88" = "Lymphoma",
+  "C54" = "Uterine cancer", "C55" = "Uterine cancer", 
+  "C64" = "Kidney cancer", "C65" = "Kidney cancer",
+  "C91" = "Leukemia", "C92" = "Leukemia", 
+  "C93" = "Leukemia", "C94" = "Leukemia", 
+  "C95" = "Leukemia", "C46" = "Soft tissue cancer", 
+  "C47" = "Soft tissue cancer", "C48" = "Soft tissue cancer", 
+  "C49" = "Soft tissue cancer", "C01" = "Tongue cancer", 
+  "C02" = "Tongue cancer", "C23" = "Biliary duct cancer", 
+  "C24" = "Biliary duct cancer", "C03" = "Mouth cancer", 
+  "C04" = "Mouth cancer", "C05" = "Mouth cancer", 
+  "C06" = "Mouth cancer", "C61" = "Prostate cancer", 
+  "C50" = "Breast cancer", "C34" = "Lung cancer", 
+  "C43" = "Melanoma", "C67" = "Bladder cancer", 
+  "C25" = "Pancreatic cancer", "C56" = "Ovarian cancer", 
+  "C15" = "Esophageal cancer", "C71" = "Brain cancer", 
+  "C90" = "Multiple myeloma", "C16" = "Stomach cancer", 
+  "C22" = "Liver cancer", "C45" = "Mesothelioma", 
+  "C73" = "Thyroid cancer", "C09" = "Tonsil cancer", 
+  "C17" = "Small intestine cancer", "C32" = "Laryngeal cancer",
+  "C53" = "Cervix Cancer", "C62" = "Testis cancer",
+  "C66" = "Ureter cancer", "C11" = "Nasopharynx cancer",
+  "C00" = "Lip cancer", "C21" = "Anus Cancer", 
+  "C51" = "Female genitalia cancer",
+  "C52" = "Female genitalia cancer", "C57" = "Female genitalia cancer",
+  "C69" = "Eye cancer"  
+)
+
+#function
+find_cancer_name <- function(cancer_code) {
+  if (cancer_code %in% names(cancer_type_mapping)) {
+    return(cancer_type_mapping[cancer_code])
+  } else {
+    return(NA)
+  }
+}
+exp_final <- cc_experimental_C_selected_plus %>%
+  mutate(cancer_name = coalesce(sapply(Cancer_Code, find_cancer_name), NA))
+
+aa <- filter(exp_final, is.na(cancer_name))
+table(aa$Cancer_Code)
+
+head(exp_final)
+exp_final <- exp_final[,c(1,2,4,5,7,8)]
+saveRDS(exp_final, "exp_final.rds")
+  
+convert_date <- function(x) {
+  if(x %in% c("0", "", "NA")) {
+    return(NA_real_) 
+  } else {
+    result <- tryCatch({
+      if(is.numeric(x)) {
+        as.numeric(x)
+      } else {
+        as.numeric(as.Date(x, format="%Y/%m/%d") - as.Date("1900-01-01"))
+      }
+    }, error = function(e) {
+      stop(paste("Failed to convert input:", x, "- Error:", e$message)) 
+    })
+    return(result)
+  }
+}
+
+#use the function
+time_clean_data <- exp_final %>%
+  mutate(across(diagnosis_time, ~map_dbl(.x, convert_date)))
+
+time_clean_data_diff <- dplyr::rename(time_clean_data, "Participant.ID" = "Participant_ID")
+
+end_message <- readRDS("end_message.rds")
+names(end_message_clean)
+end_message_tiny_clean <- end_message[,c(1,6)]
+end_message_tiny_clean <- dplyr::rename(end_message_tiny_clean, "Participant.ID" = "Participant ID")
+exp_media <- merge(time_clean_data_diff, end_message_tiny_clean)
+exp_media <- merge(exp_media, age_data)
+
+exp_media$age_entry <- as.numeric(exp_media$age_entry)
+exp_media$delta_days <- exp_media$diagnosis_time - exp_media$`Date of attending assessment centre | Instance 0`
+exp_media$delta_years <- exp_media$delta_days / 365.25
+
+exp_media$age_event <- exp_media$age_entry + exp_media$delta_years
+exp_media$indicator <- 1
+
+exp_media <- exp_media[,c(1,12,8,11,9,10,6,4)] 
+names(exp_media)
+
+exp_finalll <- exp_media
+exp_finalll$cancer_name[is.na(exp_finalll$cancer_name)] <- "Other cancer"
+saveRDS(exp_finalll, "exp_finalll.rds")
+
+###################################
+
+setwd("E:/Desktop/analysis/origin data/med")
+
+exp_finalll <- readRDS("exp_finalll.rds")
+outcome_compare <- readRDS("outcome_compare.rds")
+cc_compare <- readRDS("cc_compare.rds")
+
+names(exp_finalll)
+
+names(cc_compare)
+cc_compare <- dplyr::rename(cc_compare, "delta_days" = "follow_up_time_day")
+cc_compare <- dplyr::rename(cc_compare, "delta_years" = "follow_up_time_year")
+
+names(outcome_compare)
+outcome_compare <- dplyr::rename(outcome_compare, "delta_days" = "follow_up_time_day")
+outcome_compare <- dplyr::rename(outcome_compare, "delta_years" = "follow_up_time_year")
+
+outcome <- rbind(exp_finalll, cc_compare)
+outcome <- rbind(outcome, outcome_compare)
+
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(outcome, "outcome.rds")
+  
