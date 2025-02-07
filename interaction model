@@ -1,4 +1,3 @@
-
 ##interaction
 ##basic
 isolation_interaction <- TableSubgroupMultiCox(
@@ -10,7 +9,7 @@ isolation_interaction <- TableSubgroupMultiCox(
               "Hand_grip","day_exposure","diet_score", "depress_mood",
               "sleep_score","Townsend_deprivation_index",
               "Waist_to_hip_ratio","Family_cancer",
-              "Overall_health_rating", "Income"),  # 这里指定了年龄和治疗作为协变量进行调整
+              "Overall_health_rating", "Income"),  
   data = incident,
   time_eventrate = 6166,
   decimal.hr = 5,
@@ -28,7 +27,7 @@ loneliness_interaction <- TableSubgroupMultiCox(
               "Hand_grip","day_exposure","diet_score", "depress_mood",
               "sleep_score","Townsend_deprivation_index",
               "Waist_to_hip_ratio","Family_cancer",
-              "Overall_health_rating", "Income"),  # 这里指定了年龄和治疗作为协变量进行调整
+              "Overall_health_rating", "Income"),  
   data = incident,
   time_eventrate = 6166,
   decimal.hr = 5,
@@ -39,20 +38,14 @@ loneliness_interaction <- TableSubgroupMultiCox(
 
 #####addictive
 #isolation
-# 1. 创建哑变量矩阵
 dummy_variables <- model.matrix(~ age_group + Sex + Income + Education + Employment + Smoking_status + Alcohol_status, data = incident)
 
-# 将哑变量矩阵转换为数据框，并去除Intercept列
 incident_dummy <- as.data.frame(dummy_variables)
-incident_dummy <- incident_dummy[, -1] # 去除第一列 (Intercept)
-
-# 将原始数据框的非分类变量与哑变量数据框合并
+incident_dummy <- incident_dummy[, -1]
 incident_combined <- cbind(incident, incident_dummy)
 
-# 2. 使用哑变量进行交互分析
 variables_to_interact <- colnames(incident_dummy)
 
-# 创建一个空的数据框用于保存RERI, AP, SI 及其置信区间的结果
 addictive_isolation <- data.frame(
   Variable = character(),
   RERI = numeric(),
@@ -67,9 +60,8 @@ addictive_isolation <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# 计算 RERI, AP 和 SI 的函数，并计算置信区间
 calculate_interaction_metrics <- function(cox_model, var, isolation_name = "isolation") {
-  # 提取主效应和交互项的系数及其置信区间
+  
   beta_isolation <- summary(cox_model)$coefficients[paste0(isolation_name, "1"), "coef"]
   ci_isolation <- confint(cox_model, parm = paste0(isolation_name, "1"))
   
@@ -80,18 +72,15 @@ calculate_interaction_metrics <- function(cox_model, var, isolation_name = "isol
   beta_interaction <- summary(cox_model)$coefficients[interaction_term, "coef"]
   ci_interaction <- confint(cox_model, parm = interaction_term)
   
-  # 计算 RERI (相对超额风险归因于交互作用)
   RERI <- exp(beta_interaction) - 1
   ci_RERI <- exp(c(ci_interaction[1], ci_interaction[2])) - 1
   
-  # 计算 AP (交互作用归因分数)
   AP <- (exp(beta_isolation + beta_var + beta_interaction) - exp(beta_isolation) - exp(beta_var) + 1) / exp(beta_isolation + beta_var + beta_interaction)
   ci_AP <- c(
     (exp(beta_isolation + beta_var + ci_interaction[1]) - exp(beta_isolation) - exp(beta_var) + 1) / exp(beta_isolation + beta_var + ci_interaction[1]),
     (exp(beta_isolation + beta_var + ci_interaction[2]) - exp(beta_isolation) - exp(beta_var) + 1) / exp(beta_isolation + beta_var + ci_interaction[2])
   )
   
-  # 计算 SI (交互作用的协同指数)
   SI <- exp(beta_interaction) / (exp(beta_isolation) * exp(beta_var))
   ci_SI <- c(
     exp(ci_interaction[1]) / (exp(beta_isolation) * exp(beta_var)),
@@ -101,33 +90,25 @@ calculate_interaction_metrics <- function(cox_model, var, isolation_name = "isol
   return(list(RERI = RERI, ci_RERI = ci_RERI, AP = AP, ci_AP = ci_AP, SI = SI, ci_SI = ci_SI))
 }
 
-# 3. 进行交互作用分析并手动计算
+
 for (var in variables_to_interact) {
   print(var)
-  # 如果变量名包含空格，则用反引号包裹
-  # 如果变量名包含特殊字符（如 -），则用反引号包裹
   if (grepl("[^a-zA-Z0-9_]", var)) {
     var <- paste0("`", var, "`")
   }
   
-  # 创建包含当前哑变量交互项的公式字符串
   formula_str <- paste("Surv(time = age_entry, time2 = age_event, indicator) ~ isolation *", var, "+", paste(covariates_model3, collapse = " + "))
   
-  # 将字符串转换为公式
   formula <- as.formula(formula_str)
   
-  # 运行 Cox 比例风险模型
   cox_model <- coxph(formula, data = incident_combined)
   
-  # 输出 Cox 模型的摘要
-  print(paste("交互作用分析: isolation 与", var))
+  print(paste(" isolation and", var))
   #print(summary(cox_model))
   
-  # 手动计算 RERI, AP 和 SI 及其置信区间
   tryCatch({
     interaction_metrics <- calculate_interaction_metrics(cox_model, var)
     
-    # 将结果添加到 summary 数据框中
     addictive_isolation <- rbind(addictive_isolation, data.frame(
       Variable = var,
       RERI = interaction_metrics$RERI,
@@ -143,29 +124,22 @@ for (var in variables_to_interact) {
     ))
     
   }, error = function(e) {
-    print(paste("错误：在分析", var, "时发生错误。", e$message))
+    print(paste("Error: An error occurred while analyzing ", e$message))
   })
 }
 
-# 打印最终的交互作用汇总表
 print(addictive_isolation)
 
-##loneliness
 begin_incident <- incident
-# 1. 创建哑变量矩阵
 dummy_variables <- model.matrix(~ age_group + Sex + Income + Education + Employment + Smoking_status + Alcohol_status, data = begin_incident)
 
-# 将哑变量矩阵转换为数据框，并去除Intercept列
 begin_incident_dummy <- as.data.frame(dummy_variables)
-begin_incident_dummy <- begin_incident_dummy[, -1] # 去除第一列 (Intercept)
+begin_incident_dummy <- begin_incident_dummy[, -1] 
 
-# 将原始数据框的非分类变量与哑变量数据框合并
 begin_incident_combined <- cbind(begin_incident, begin_incident_dummy)
 
-# 2. 使用哑变量进行交互分析
 variables_to_interact <- colnames(begin_incident_dummy)
 
-# 创建一个空的数据框用于保存RERI, AP, SI 及其置信区间的结果
 addictive_loneliness <- data.frame(
   Variable = character(),
   RERI = numeric(),
@@ -180,9 +154,8 @@ addictive_loneliness <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# 计算 RERI, AP 和 SI 的函数，并计算置信区间
 calculate_interaction_metrics <- function(cox_model, var, loneliness_name = "loneliness") {
-  # 提取主效应和交互项的系数及其置信区间
+  
   beta_loneliness <- summary(cox_model)$coefficients[paste0(loneliness_name, "1"), "coef"]
   ci_loneliness <- confint(cox_model, parm = paste0(loneliness_name, "1"))
   
@@ -193,18 +166,15 @@ calculate_interaction_metrics <- function(cox_model, var, loneliness_name = "lon
   beta_interaction <- summary(cox_model)$coefficients[interaction_term, "coef"]
   ci_interaction <- confint(cox_model, parm = interaction_term)
   
-  # 计算 RERI (相对超额风险归因于交互作用)
   RERI <- exp(beta_interaction) - 1
   ci_RERI <- exp(c(ci_interaction[1], ci_interaction[2])) - 1
   
-  # 计算 AP (交互作用归因分数)
   AP <- (exp(beta_loneliness + beta_var + beta_interaction) - exp(beta_loneliness) - exp(beta_var) + 1) / exp(beta_loneliness + beta_var + beta_interaction)
   ci_AP <- c(
     (exp(beta_loneliness + beta_var + ci_interaction[1]) - exp(beta_loneliness) - exp(beta_var) + 1) / exp(beta_loneliness + beta_var + ci_interaction[1]),
     (exp(beta_loneliness + beta_var + ci_interaction[2]) - exp(beta_loneliness) - exp(beta_var) + 1) / exp(beta_loneliness + beta_var + ci_interaction[2])
   )
   
-  # 计算 SI (交互作用的协同指数)
   SI <- exp(beta_interaction) / (exp(beta_loneliness) * exp(beta_var))
   ci_SI <- c(
     exp(ci_interaction[1]) / (exp(beta_loneliness) * exp(beta_var)),
@@ -213,33 +183,24 @@ calculate_interaction_metrics <- function(cox_model, var, loneliness_name = "lon
   return(list(RERI = RERI, ci_RERI = ci_RERI, AP = AP, ci_AP = ci_AP, SI = SI, ci_SI = ci_SI))
 }
 
-# 3. 进行交互作用分析并手动计算
 for (var in variables_to_interact) {
   print(var)
-  # 如果变量名包含空格，则用反引号包裹
-  # 如果变量名包含特殊字符（如 -），则用反引号包裹
   if (grepl("[^a-zA-Z0-9_]", var)) {
     var <- paste0("`", var, "`")
   }
   
-  # 创建包含当前哑变量交互项的公式字符串
   formula_str <- paste("Surv(time = age_entry, time2 = age_event, indicator) ~ loneliness *", var, "+", paste(covariates_model3, collapse = " + "))
   
-  # 将字符串转换为公式
   formula <- as.formula(formula_str)
   
-  # 运行 Cox 比例风险模型
   cox_model <- coxph(formula, data = begin_incident_combined)
   
-  # 输出 Cox 模型的摘要
-  print(paste("交互作用分析: loneliness 与", var))
+  print(paste("loneliness and", var))
   #print(summary(cox_model))
   
-  # 手动计算 RERI, AP 和 SI 及其置信区间
   tryCatch({
     interaction_metrics <- calculate_interaction_metrics(cox_model, var)
     
-    # 将结果添加到 summary 数据框中
     addictive_loneliness <- rbind(addictive_loneliness, data.frame(
       Variable = var,
       RERI = interaction_metrics$RERI,
@@ -255,18 +216,15 @@ for (var in variables_to_interact) {
     ))
     
   }, error = function(e) {
-    print(paste("错误：在分析", var, "时发生错误。", e$message))
+    print(paste("Error: An error occurred while analyzing ", e$message))
   })
 }
 
-# 打印最终的交互作用汇总表
 print(addictive_loneliness)
 
 ######################################
-##merge+figure
 data <- isolation_interaction
 data2 <- addictive_isolation
-# 添加9列，并命名为相应的列名
 data$RERI <- NA
 data$RERI_Lower <- NA
 data$RERI_Upper <- NA
@@ -277,22 +235,17 @@ data$SI <- NA
 data$SI_Lower <- NA
 data$SI_Upper <- NA
 
-# 假设 data 和 data2 已经存在
-# 定义需要复制的行号
 data_rows <- c(4, 5, 8, 11, 12, 13, 16, 19, 20, 23, 24, 27, 28)
-data2_rows <- 1:length(data_rows)  # 对应 data2 的行号
+data2_rows <- 1:length(data_rows) 
 
-# 循环遍历行号并赋值
 for (i in seq_along(data_rows)) {
   data[data_rows[i], c("RERI", "RERI_Lower", "RERI_Upper", "AP", "AP_Lower", "AP_Upper", "SI", "SI_Lower", "SI_Upper")] <- 
     data2[data2_rows[i], c("RERI", "RERI_Lower", "RERI_Upper", "AP", "AP_Lower", "AP_Upper", "SI", "SI_Lower", "SI_Upper")]
 }
 
 ###################################################################
-# 加载数据
 dt <- data
 names(dt)
-# 添加空列和 HR(95%CI) 列
 dt$" " <- "                  "
 dt$"RERI(95%CI)" <- ifelse(is.na(dt$RERI), "",
                            sprintf('%.3f (%.3f - %.3f)', dt$RERI, dt$RERI_Lower, dt$RERI_Upper))
@@ -300,15 +253,12 @@ dt$"RERI(95%CI)" <- ifelse(is.na(dt$RERI), "",
 dt$"AP(95%CI)" <- ifelse(is.na(dt$AP), "",
                          sprintf('%.3f (%.3f - %.3f)', dt$AP, dt$AP_Lower, dt$AP_Upper))
 
-dt[, 4:6] <- apply(dt[, 4:6], 2, as.numeric)  #将第4到第6列的数据转换为数值型
-
+dt[, 4:6] <- apply(dt[, 4:6], 2, as.numeric)  
 
 table(dt$`Point Estimate`,useNA = "ifany")
 table(dt$Lower, useNA = "ifany")
 dt$"HR (95% CI)" <- ifelse(is.na(dt$`Point Estimate`), "",
-                           sprintf("%.3f (%.3f to %.3f)",dt$`Point Estimate`, dt$Lower, dt$Upper))  #计算HR (95% CI)，以便显示在图形中
-
-# 生成森林图
+                           sprintf("%.3f (%.3f to %.3f)",dt$`Point Estimate`, dt$Lower, dt$Upper))  
 names(dt)
 dt$Count <- as.character(dt$Count)
 dt$Percent <- as.character(dt$Percent)
@@ -338,13 +288,10 @@ print(p)
 ggsave("interaction_isolation.pdf", plot = p, width = 100, height = 100, units = "in", device = "pdf",limitsize = FALSE)
 saveRDS(data, "interaction_isolation.rds")
 ##############################################################3
-##loneliness
 data <- loneliness_interaction
 data2 <- addictive_loneliness
-# 假设你的数据框名为 data
 data <- data.frame(data)
 
-# 添加9列，并命名为相应的列名
 data$RERI <- NA
 data$RERI_Lower <- NA
 data$RERI_Upper <- NA
@@ -355,20 +302,15 @@ data$SI <- NA
 data$SI_Lower <- NA
 data$SI_Upper <- NA
 
-# 查看结果
 data_rows <- c(4, 5, 8, 11, 12, 13, 16, 19, 20, 23, 24, 27, 28)
-data2_rows <- 1:length(data_rows)  # 对应 data2 的行号
-
-# 循环遍历行号并赋值
+data2_rows <- 1:length(data_rows)  
 for (i in seq_along(data_rows)) {
   data[data_rows[i], c("RERI", "RERI_Lower", "RERI_Upper", "AP", "AP_Lower", "AP_Upper", "SI", "SI_Lower", "SI_Upper")] <- 
     data2[data2_rows[i], c("RERI", "RERI_Lower", "RERI_Upper", "AP", "AP_Lower", "AP_Upper", "SI", "SI_Lower", "SI_Upper")]
 }
 ###################################################################
-# 加载数据
 dt <- data
 names(dt)
-# 添加空列和 HR(95%CI) 列
 dt$" " <- "                  "
 dt$"RERI(95%CI)" <- ifelse(is.na(dt$RERI), "",
                            sprintf('%.3f (%.3f - %.3f)', dt$RERI, dt$RERI_Lower, dt$RERI_Upper))
@@ -377,14 +319,12 @@ dt$"AP(95%CI)" <- ifelse(is.na(dt$AP), "",
                          sprintf('%.3f (%.3f - %.3f)', dt$AP, dt$AP_Lower, dt$AP_Upper))
 
 dt$"P for interaction" <- dt$`P.for.interaction`
-# 添加新列显著性标识并根据条件赋值
 
 str(dt)
-dt[, 4:6] <- apply(dt[, 4:6], 2, as.numeric)  #将第4到第6列的数据转换为数值型
-
+dt[, 4:6] <- apply(dt[, 4:6], 2, as.numeric)  
 dt$"HR (95% CI)" <- ifelse(is.na(dt$Point.Estimate), "",
                            sprintf("%.2f (%.2f to %.2f)",
-                                   dt$Point.Estimate, dt$Lower, dt$Upper))  #计算HR (95% CI)，以便显示在图形中
+                                   dt$Point.Estimate, dt$Lower, dt$Upper))  
 
 dt$Count <- as.character(dt$Count)
 dt$Percent <- as.character(dt$Percent)
