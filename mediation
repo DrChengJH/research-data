@@ -1,0 +1,1931 @@
+setwd("E:/Desktop/analysis/origin data/origin")
+mediators_female <- read.csv("jiahao_participant.csv")
+female <- filter(incident, Sex == "Female")
+mediators_female_final <- mediators_female[,c(1,6,10,12,16,20)]
+female_mediators <- merge(female, mediators_female_final)
+
+names(female_mediators)
+names(female_mediators)[names(female_mediators) == "Had.menopause...Instance.0"] <- "Had_Menopause"
+names(female_mediators)[names(female_mediators) == "SHBG...Instance.0"] <- "SHBG"
+names(female_mediators)[names(female_mediators) == "Oestradiol...Instance.0"] <- "Oestradiol"
+names(female_mediators)[names(female_mediators) == "Ever.used.hormone.replacement.therapy..HRT....Instance.0"] <- "Ever_Used_HRT"
+names(female_mediators)[names(female_mediators) == "Age.when.periods.started..menarche....Instance.0"] <- "Age_Menarche"
+names(female_mediators)
+
+str(female_mediators)
+table(female_mediators$Had_Menopause)
+female_mediators <- female_mediators %>%
+  mutate(Had_Menopause = case_when(
+    Had_Menopause == "Not sure - had a hysterectomy" ~ "hysterectomy",
+    Had_Menopause == "No" ~ "No",
+    Had_Menopause == "Yes" ~ "Yes",
+    TRUE ~ "Others"
+  ))
+table(female_mediators$Had_Menopause,useNA = "ifany")
+female_mediators$Had_Menopause <- as.factor(female_mediators$Had_Menopause)
+
+##Ever_Used_HRT
+table(female_mediators$Ever_Used_HRT)
+female_mediators <- female_mediators %>%
+  mutate(Ever_Used_HRT = case_when(
+    Ever_Used_HRT == "No" ~ "No",
+    Ever_Used_HRT == "Yes" ~ "Yes",
+    TRUE ~ "Others"
+  ))
+table(female_mediators$Ever_Used_HRT,useNA = "ifany")
+female_mediators$Ever_Used_HRT <- as.factor(female_mediators$Ever_Used_HRT)
+
+##Age_Menarche
+table(female_mediators$Age_Menarche,useNA = "ifany")
+female_mediators$Age_Menarche <- as.numeric(female_mediators$Age_Menarche)
+
+
+mediator_vars <- c("Had_Menopause","SHBG","Oestradiol",
+                   "Ever_Used_HRT" ,"Age_Menarche")
+
+dummy_data <- female_mediators
+incident_covariates <- female_mediators
+for (var in mediator_vars) {
+  if (is.factor(incident_covariates[[var]]) && nlevels(incident_covariates[[var]]) > 2) {
+    dummy_vars <- model.matrix(~ incident_covariates[[var]] - 1, data = incident_covariates)
+    
+    colnames(dummy_vars) <- paste0(var, "_", levels(incident_covariates[[var]]))
+    
+    dummy_data <- cbind(dummy_data, dummy_vars)
+    
+    dummy_data[[var]] <- NULL
+  }
+}
+summary(dummy_data$Oestradiol)
+str(dummy_data)
+
+mediator_vars <- c("SHBG","Oestradiol","Age_Menarche",
+                   "Had_Menopause_hysterectomy","Had_Menopause_No","Had_Menopause_Others",
+                   "Had_Menopause_Yes","Ever_Used_HRT_No","Ever_Used_HRT_Others","Ever_Used_HRT_Yes")
+
+setwd("E:/Desktop/analysis/mediation")
+saveRDS(dummy_data, "hormone_mediator.rds")
+
+######################################################
+setwd("E:/Desktop/analysis/origin data/origin")
+mediatior <- read.xlsx("Immune and inflammatory mediators.xlsx")
+inflammation_mediators <- merge(incident, mediatior)
+names(inflammation_mediators)
+names(inflammation_mediators)[names(inflammation_mediators) == "Lymphocyte.count...Instance.0"] <- "Lym"
+names(inflammation_mediators)[names(inflammation_mediators) == "Monocyte.count...Instance.0.x"] <- "Mono"
+names(inflammation_mediators)[names(inflammation_mediators) == "Neutrophill.count...Instance.0"] <- "Neu"
+names(inflammation_mediators)[names(inflammation_mediators) == "Platelet.count...Instance.0"] <- "PLT"
+names(inflammation_mediators)[names(inflammation_mediators) == "White.blood.cell..leukocyte..count...Instance.0"] <- "WBC"
+names(inflammation_mediators)[names(inflammation_mediators) == "C-reactive.protein.|.Instance.0"] <- "CRP"
+names(inflammation_mediators)[names(inflammation_mediators) == "lymphocyte-to-monocyte.ratio"] <- "Lym_Mono_ratio"
+names(inflammation_mediators)[names(inflammation_mediators) == "neutrophil-to-lymphocyte.ratio"] <- "Neu_Lym_ratio"
+names(inflammation_mediators)[names(inflammation_mediators) == "platelet-to-lymphocyte.ratio"] <- "PLT_Lym_ratio"
+names(inflammation_mediators)[names(inflammation_mediators) == "systemic.immune-infammation.index"] <- "sys_infammation"
+names(inflammation_mediators)
+
+setwd("E:/Desktop/analysis/mediation")
+saveRDS(inflammation_mediators, "infla_mediators.rds")
+
+
+############################################################
+setwd("E:/Desktop/analysis/mediation")
+dummy_data <- readRDS("hormone_mediator.rds")
+str(dummy_data)
+
+mediator_vars <- c("SHBG","Oestradiol","Age_Menarche",  
+                   "Had_Menopause_hysterectomy","Had_Menopause_No","Had_Menopause_Others",
+                   "Had_Menopause_Yes","Ever_Used_HRT_No","Ever_Used_HRT_Others","Ever_Used_HRT_Yes")
+covariates <- c("Age",
+                "Race","Diastolic_blood_pressure",
+                "Systolic_blood_pressure","BMI","UK_Center",
+                "Employment","Education","Smoking_status","Alcohol_status",
+                "Hand_grip","day_exposure","diet_score", "depress_mood",
+                "sleep_score","Townsend_deprivation_index",
+                "Waist_to_hip_ratio","Family_cancer","Income",
+                "Overall_health_rating")
+
+main_results <- data.frame()
+supplementary_results <- data.frame()
+for (mediator in mediator_vars) {
+  
+  if (is.factor(dummy_data[[mediator]]) && nlevels(dummy_data[[mediator]]) == 2) {
+    print(paste("Processing binary variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = binomial)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+    
+  } else if (is.numeric(dummy_data[[mediator]])) {
+    print(paste("Processing continuous variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = gaussian)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|t|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+    
+  } else if (grepl("_", mediator) && is.numeric(dummy_data[[mediator]])) {
+    print(paste("Processing dummy variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = binomial)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+  }
+  
+  indirect_effect <- a_estimate * b_estimate
+  indirect_se <- sqrt((a_estimate^2 * b_se^2) + (b_estimate^2 * a_se^2))
+  indirect_ci_lower <- indirect_effect - 1.96 * indirect_se
+  indirect_ci_upper <- indirect_effect + 1.96 * indirect_se
+  indirect_pvalue <- 2 * (1 - pnorm(abs(indirect_effect / indirect_se)))
+  print(paste("indirect_effect:", indirect_effect, "indirect_se:", indirect_se))
+  print(paste("indirect_ci_lower:", indirect_ci_lower, "indire  ct_ci_upper:", indirect_ci_upper, "indirect_pvalue:", indirect_pvalue))
+  
+  total_effect <- c_estimate
+  direct_effect <- c_prime_estimate
+  pm <- indirect_effect / total_effect
+  pm_se <- sqrt((indirect_se / total_effect)^2 + ((indirect_effect * c_se / total_effect^2)^2))
+  pm_ci_lower <- pm - 1.96 * pm_se
+  pm_ci_upper <- pm + 1.96 * pm_se
+  pm_pvalue <- 2 * (1 - pnorm(abs(pm / pm_se)))
+  print(paste("Proportion Mediated (PM):", pm))
+  print(paste("PM_se:", pm_se, "PM_ci_lower:", pm_ci_lower, "PM_ci_upper:", pm_ci_upper, "PM_pvalue:", pm_pvalue))
+  
+  main_results <- rbind(main_results, data.frame(
+    Mediator = mediator,
+    Total_Effect = total_effect,
+    Total_CI_Lower = c_estimate - 1.96 * c_se,
+    Total_CI_Upper = c_estimate + 1.96 * c_se,
+    Total_P_Value = c_pvalue,
+    Direct_Effect = direct_effect,
+    Direct_CI_Lower = c_prime_estimate - 1.96 * c_prime_se,
+    Direct_CI_Upper = c_prime_estimate + 1.96 * c_prime_se,
+    Direct_P_Value = c_prime_pvalue,
+    Indirect_Effect = indirect_effect,
+    Indirect_CI_Lower = indirect_ci_lower,
+    Indirect_CI_Upper = indirect_ci_upper,
+    Indirect_P_Value = indirect_pvalue,
+    Proportion_Mediated = pm,
+    PM_CI_Lower = pm_ci_lower,
+    PM_CI_Upper = pm_ci_upper,
+    PM_P_Value = pm_pvalue
+  ))
+  
+  supplementary_results <- rbind(supplementary_results, data.frame(
+    Mediator = mediator,
+    a_Estimate = a_estimate,
+    a_Std_Error = a_se,
+    a_P_Value = a_pvalue,
+    b_Estimate = b_estimate,
+    b_Std_Error = b_se,
+    b_P_Value = b_pvalue,
+    c_Estimate = c_estimate,
+    c_Std_Error = c_se,
+    c_P_Value = c_pvalue,
+    c_prime_Estimate = c_prime_estimate,
+    c_prime_Std_Error = c_prime_se,
+    c_prime_P_Value = c_prime_pvalue,
+    Total_Effect = total_effect,
+    Direct_Effect = direct_effect,
+    Indirect_Effect = indirect_effect,
+    Indirect_Effect_Std_Error = indirect_se,
+    Indirect_P_Value = indirect_pvalue,
+    Proportion_Mediated = pm,
+    PM_Std_Error = pm_se,
+    PM_P_Value = pm_pvalue
+  ))
+}
+hormone_total <- main_results
+hormone_total_supp <- supplementary_results
+print(main_results)
+saveRDS(main_results,"hormone_total.rds")
+print(supplementary_results)
+saveRDS(supplementary_results,"hormone_total_supp.rds")
+
+
+supplementary_results <- readRDS("hormone_total_supp.rds")
+
+supplementary_results <- supplementary_results %>% 
+  mutate(across(where(is.numeric), ~ { 
+    x <- round(., 4)  
+    ifelse(x == 0, "<0.0001", x) 
+  }))
+
+ft <- flextable(supplementary_results)
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "hormone_total_supp.docx")
+
+
+female_isolation_mediator_mediate <- readRDS("hormone_total.rds")
+unique(female_isolation_mediator_mediate$Mediator)
+
+dt <- female_isolation_mediator_mediate
+dt$" " <- paste(rep(" ", 20), collapse = " ")
+dt$"IE(95%CI)" <- ifelse(is.na(dt$Indirect_Effect), "",
+                         sprintf('%.5f (%.5f - %.5f)', dt$Indirect_Effect, dt$Indirect_CI_Lower, dt$Indirect_CI_Upper))
+
+dt$"PM(95%CI)" <- ifelse(is.na(dt$Proportion_Mediated), "",
+                         sprintf('%.5f (%.5f - %.5f)', dt$Proportion_Mediated, dt$PM_CI_Lower, dt$PM_CI_Upper))
+dt$"PM" <- round(dt$Proportion_Mediated,5)
+dt$"P value" <- round(dt$Indirect_P_Value, 4)
+#colnames(dt)[ncol(dt)] <- "Total(Exposed)"
+
+#dt$"Psig" <- ifelse(dt$Pvalue <= 0.001, "***",
+#                    ifelse(dt$Pvalue <= 0.01, "**",
+#                           ifelse(dt$Pvalue <= 0.05, "*", "")))
+print(str(dt))
+print(table(dt$`IE(95%CI)`,useNA = "ifany"))
+dt <- dt %>%
+  mutate(Mediator = case_when(
+    Mediator == "SHBG" ~ "SHBG",
+    Mediator == "Oestradiol" ~ "Oestradiol",
+    Mediator == "Age_Menarche" ~ "Age Menarche",
+    Mediator == "Had_Menopause_hysterectomy" ~ "Had Menopause hysterectomy",
+    Mediator == "Had_Menopause_No" ~ "Had Menopause No",
+    Mediator == "Had_Menopause_Others" ~ "Had Menopause Others",
+    Mediator == "Had_Menopause_Yes" ~ "Had Menopause",
+    Mediator == "Ever_Used_HRT_No" ~ "Never Used HRT",
+    Mediator == "Ever_Used_HRT_Others" ~ "Ever Used HRT Others",
+    Mediator == "Ever_Used_HRT_Yes" ~ "Ever Used HRT",
+    TRUE ~ Mediator  
+  ))
+
+
+
+p <- forest(dt[, c(1, 18,19,22,21)],
+            est = dt$Indirect_Effect,
+            lower = dt$Indirect_CI_Lower,
+            upper = dt$Indirect_CI_Upper,
+            sizes = 0.6,
+            ci_column = 2,
+            ref_line = 0,
+            arrow_lab = c("lower risk", "higher risk"),
+            xlim = c(-0.003,0.003),
+            ticks_at = c(-0.003,0,0.003),
+            #theme = tm,
+            footnote = "hormone_total"
+)
+
+print(p)
+ggsave("hormone_total.pdf", plot = p, width = 100, height = 100, units = "in", device = "pdf",limitsize = FALSE)
+
+##female & specific exposure
+main_results <- data.frame()
+supplementary_results <- data.frame()
+mediator_vars <- c("depress_mood" ,"Had_Menopause",
+                   "SHBG"            ,"Oestradiol" ,
+                   "C_Reactive_Protein" ,"Ever_Used_HRT" ,
+                   "Age_Menarche"  )
+
+mediator_vars <- c(
+  "SHBG","Oestradiol","Age_Menarche","Had_Menopause_hysterectomy",
+  "Had_Menopause_No","Had_Menopause_Others","Had_Menopause_Yes","Ever_Used_HRT_No",
+  "Ever_Used_HRT_Others","Ever_Used_HRT_Yes")
+
+covariates <- c("Age",
+                "Race","Diastolic_blood_pressure",
+                "Systolic_blood_pressure","BMI","UK_Center",
+                "Employment","Education","Smoking_status","Alcohol_status",
+                "Hand_grip","day_exposure","diet_score", "depress_mood",
+                "sleep_score","Townsend_deprivation_index",
+                "Waist_to_hip_ratio","Family_cancer",
+                "Overall_health_rating")
+
+female_data <- c("Breast cancer", "Lung cancer", 
+                 "Uterine cancer", "Bladder cancer", 
+                 "Ovarian cancer", "Stomach cancer")
+analyze_mediators_by_cancer <- function(data, mediator_vars, covariates, exposure, model_formulas) {
+  main_results <- data.frame()
+  supplementary_results <- data.frame()
+  
+  for (type in female_data) {
+    temp_data <- data %>%
+      filter(cancer_name == !!type | indicator == 0)
+    
+    for (mediator in mediator_vars) {
+      
+      if (is.factor(temp_data[[mediator]]) && nlevels(temp_data[[mediator]]) == 2) {
+        print(paste("Processing binary variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = binomial)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+        
+      } else if (is.numeric(temp_data[[mediator]])) {
+        print(paste("Processing continuous variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = gaussian)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|t|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+        
+      } else {
+        print(paste("Processing dummy variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = binomial)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+      }
+      
+      indirect_effect <- a_estimate * b_estimate
+      indirect_se <- sqrt((a_estimate^2 * b_se^2) + (b_estimate^2 * a_se^2))
+      indirect_ci_lower <- indirect_effect - 1.96 * indirect_se
+      indirect_ci_upper <- indirect_effect + 1.96 * indirect_se
+      indirect_pvalue <- 2 * (1 - pnorm(abs(indirect_effect / indirect_se)))
+      
+      total_effect <- c_estimate
+      direct_effect <- c_prime_estimate
+      pm <- indirect_effect / total_effect
+      pm_se <- sqrt((indirect_se / total_effect)^2 + ((indirect_effect * c_se / total_effect^2)^2))
+      pm_ci_lower <- pm - 1.96 * pm_se
+      pm_ci_upper <- pm + 1.96 * pm_se
+      pm_pvalue <- 2 * (1 - pnorm(abs(pm / pm_se)))
+      
+      main_results <- rbind(main_results, data.frame(
+        Cancer_Type = type,
+        Mediator = mediator,
+        Total_Effect = total_effect,
+        Total_CI_Lower = c_estimate - 1.96 * c_se,
+        Total_CI_Upper = c_estimate + 1.96 * c_se,
+        Total_PValue = c_pvalue,
+        Direct_Effect = direct_effect,
+        Direct_CI_Lower = c_prime_estimate - 1.96 * c_prime_se,
+        Direct_CI_Upper = c_prime_estimate + 1.96 * c_prime_se,
+        Direct_PValue = c_prime_pvalue,
+        Indirect_Effect = indirect_effect,
+        Indirect_CI_Lower = indirect_ci_lower,
+        Indirect_CI_Upper = indirect_ci_upper,
+        Indirect_PValue = indirect_pvalue,
+        PM = pm,
+        PM_CI_Lower = pm_ci_lower,
+        PM_CI_Upper = pm_ci_upper,
+        PM_PValue = pm_pvalue
+      ))
+      
+      supplementary_results <- rbind(supplementary_results, data.frame(
+        Cancer_Type = type,
+        Mediator = mediator,
+        Exposure = exposure,
+        A_Estimate = a_estimate,
+        A_SE = a_se,
+        A_PValue = a_pvalue,
+        B_Estimate = b_estimate,
+        B_SE = b_se,
+        B_PValue = b_pvalue,
+        Total_Effect = total_effect,
+        Direct_Effect = direct_effect
+      ))
+    }
+  }
+  
+  return(list(main_results = main_results, supplementary_results = supplementary_results))
+}
+
+results <- analyze_mediators_by_cancer(
+  data = dummy_data, 
+  mediator_vars = mediator_vars, 
+  covariates = covariates, 
+  exposure = "isolation", 
+  model_formulas = list(
+    total_effect = "Surv(age_entry, age_event, indicator) ~ ExposureVariable + covariate1 + covariate2 + covariate3",
+    a_effect = "Mediator ~ ExposureVariable + covariate1 + covariate2 + covariate3",
+    direct_effect = "Surv(age_entry, age_event, indicator) ~ ExposureVariable + Mediator + covariate1 + covariate2 + covariate3"
+  )
+)
+
+main_results <- as.data.frame(results$main_results)
+supplementary_results <- as.data.frame(results$supplementary_results)
+
+hormone_female_subca <- main_results
+hormone_female_subca_supp <- supplementary_results
+print(main_results)
+saveRDS(main_results,"hormone_female_subca.rds")
+print(supplementary_results)
+saveRDS(supplementary_results,"hormone_female_subca_supp.rds")
+
+
+supplementary_results <- readRDS("hormone_female_subca_supp.rds")
+
+supplementary_results <- supplementary_results %>% 
+  mutate(across(where(is.numeric), ~ { 
+    x <- round(., 4)  
+    ifelse(x == 0, "<0.0001", x)  
+  }))
+
+ft <- flextable(supplementary_results)
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "hormone_female_subca_supp.docx")
+
+
+
+subca_female_isolation_mediator_mediate <- readRDS("hormone_female_subca.rds")
+results_df <- subca_female_isolation_mediator_mediate
+get_color <- function(IE, p_value) {
+  if (is.na(IE) || IE == Inf || IE == -Inf || p_value > 0.99) {
+    return("white")
+  }
+  
+  color_base <- ifelse(IE > 0, "#8B0000", "#006400") 
+  
+  if (p_value <= 0.001) {
+    alpha <- 1
+  } else if (p_value <= 0.01) {
+    alpha <- 1 - (p_value - 0.001) / (0.01 - 0.001) * 0.5
+  } else if (p_value <= 0.99) {
+    alpha <- 0.5 - (p_value - 0.01) / (0.99 - 0.01) * 0.5
+  } else {
+    alpha <- 0.5
+  }
+  
+  alpha <- ifelse(alpha < 0, 0, ifelse(alpha > 1, 1, alpha)) 
+  color <- col2rgb(color_base) / 255
+  color <- rgb(color[1], color[2], color[3], alpha = alpha)
+  
+  return(color)
+}
+names(results_df)
+results_df$color <- mapply(get_color, results_df$Indirect_Effect, results_df$Indirect_PValue)
+########################################
+
+results_df <- results_df %>%
+  group_by(Cancer_Type) %>%
+  mutate(corrected_p = p.adjust(Indirect_PValue, method = "bonferroni")) %>%
+  ungroup() 
+############################
+results_df <- results_df %>%
+  mutate(significance = case_when(
+    corrected_p < 0.05 ~ "b",
+    Indirect_PValue < 0.05 ~ "a",
+    TRUE ~ ""
+  ))
+
+unique(results_df$Mediator)
+#####################
+results_dfatype <- c("Breast cancer","Lung cancer","Uterine cancer", "Bladder cancer", "Ovarian cancer", "Stomach cancer")
+
+bbbtype <- c("SHBG","Oestradiol", "Age_Menarche", 
+             "Had_Menopause_hysterectomy", "Had_Menopause_No"          
+             ,"Had_Menopause_Others", "Had_Menopause_Yes", "Ever_Used_HRT_No"          
+             ,"Ever_Used_HRT_Others", "Ever_Used_HRT_Yes"  )
+
+results_df$Subgroup <- factor(results_df$Cancer_Type, levels = results_dfatype)
+results_df$Subtype <- factor(results_df$Mediator, levels = bbbtype)
+
+x_levels <- length(unique(results_df$Subgroup))
+y_levels <- length(unique(results_df$Subtype))
+
+aspect_ratio <- 1 / 1 
+
+bbbtype_new <- c("SHBG", "Oestradiol", "Age Menarche", 
+                 "Had Menopause hysterectomy", "Had Menopause No",          
+                 "Had Menopause Others", "Had Menopause", 
+                 "Never Used HRT", "Ever Used HRT Others", "Ever Used HRT")
+
+label_map <- setNames(bbbtype_new, bbbtype)
+
+p1 <- ggplot(results_df, aes(x = Subgroup, y = Subtype, fill = color)) +
+  geom_tile(color = "black", size = 0.1) + 
+  geom_text(aes(label = ifelse(significance != "", significance, "")), color = "black", size = 4, vjust = 0.5, hjust = 0.5) + 
+  theme_minimal(base_size = 12) +   theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    axis.ticks = element_blank(),
+    axis.title = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
+    axis.text.y = element_text(size = 10), 
+    plot.title = element_text(hjust = 0.5, size = 16), 
+    legend.position = "right",
+    plot.caption = element_text(size = 10) 
+  ) +
+  labs(
+    title = "Isolation Heatmap",
+    x = "Subgroup",
+    y = "Subtype",
+    fill = "Significance",
+    caption = "a p < 0.05, b p < 0.05 (after bonferroni adjusted)\nRed: Upregulation, Green: Downregulation\nColor intensity: The deeper the color, the higher the significance"
+  ) + 
+  scale_fill_identity() +
+  coord_fixed(ratio = 1) + 
+  scale_x_discrete(labels = label_map) + 
+  scale_y_discrete(labels = label_map) 
+p1
+ggsave("hormone_female_subca.pdf", plot = p, width = 8, height = 8, units = "in", device = "pdf",limitsize = FALSE)
+
+aa <- readRDS("hormone_female_subca.rds")
+results_df <- aa
+IE_P_value <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "Indirect_PValue")
+##P adjusted
+results_df <- results_df %>%
+  group_by(Cancer_Type) %>%
+  mutate(corrected_p = p.adjust(Indirect_PValue, method = "bonferroni")) %>%
+  ungroup() 
+P_value_adjusted <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "corrected_p")
+results_df$IE_CI <- ifelse(
+  is.na(results_df$Indirect_Effect),
+  " ",
+  sprintf('%.4f [%.4f - %.4f]', results_df$Indirect_Effect, results_df$Indirect_CI_Lower, results_df$Indirect_CI_Upper)
+)
+IE_CI <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "IE_CI")
+##PM(CI)
+results_df$PM_CI <- ifelse(
+  is.na(results_df$PM),
+  " ",
+  sprintf('%.4f [%.4f - %.4f]', results_df$PM, results_df$PM_CI_Lower, results_df$PM_CI_Upper)
+)
+PM_CI <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "PM_CI")
+
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = IE_P_value, style = "table_template")
+print(doc, target = "hormone_female_subca_IE_P_value_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = P_value_adjusted, style = "table_template")
+print(doc, target = "hormone_female_subca_IE_P_value_adjusted_wide.docx")
+##IE(CI)
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = IE_CI, style = "table_template")
+print(doc, target = "hormone_female_subca_IE_CI_wide.docx")
+##IE(CI)
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = PM_CI, style = "table_template")
+print(doc, target = "hormone_female_subca_PM_CI_wide.docx")
+
+
+main_results <- data.frame()
+supplementary_results <- data.frame()
+dummy_data <- readRDS("infla_mediators.rds")
+mediator_vars <- c("Lym","Mono","Neu","PLT","WBC",
+                   "CRP","Lym_Mono_ratio","Neu_Lym_ratio",
+                   "PLT_Lym_ratio","sys_infammation")
+
+covariates <- c("Age","Sex", 
+                "Race","Diastolic_blood_pressure",
+                "Systolic_blood_pressure","BMI","UK_Center",
+                "Employment","Education","Smoking_status","Alcohol_status",
+                "Hand_grip","day_exposure","diet_score", "depress_mood",
+                "sleep_score","Townsend_deprivation_index",
+                "Waist_to_hip_ratio","Family_cancer","Income",
+                "Overall_health_rating")
+
+main_results <- data.frame()
+supplementary_results <- data.frame()
+for (mediator in mediator_vars) {
+  
+  if (is.factor(dummy_data[[mediator]]) && nlevels(dummy_data[[mediator]]) == 2) {
+    print(paste("Processing binary variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = binomial)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+    
+  } else if (is.numeric(dummy_data[[mediator]])) {
+    print(paste("Processing continuous variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = gaussian)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|t|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+    
+  } else if (grepl("_", mediator) && is.numeric(dummy_data[[mediator]])) {
+    print(paste("Processing dummy variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = binomial)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+  }
+  
+  indirect_effect <- a_estimate * b_estimate
+  indirect_se <- sqrt((a_estimate^2 * b_se^2) + (b_estimate^2 * a_se^2))
+  indirect_ci_lower <- indirect_effect - 1.96 * indirect_se
+  indirect_ci_upper <- indirect_effect + 1.96 * indirect_se
+  indirect_pvalue <- 2 * (1 - pnorm(abs(indirect_effect / indirect_se)))
+  print(paste("indirect_effect:", indirect_effect, "indirect_se:", indirect_se))
+  print(paste("indirect_ci_lower:", indirect_ci_lower, "indirect_ci_upper:", indirect_ci_upper, "indirect_pvalue:", indirect_pvalue))
+  
+  total_effect <- c_estimate
+  direct_effect <- c_prime_estimate
+  pm <- indirect_effect / total_effect
+  pm_se <- sqrt((indirect_se / total_effect)^2 + ((indirect_effect * c_se / total_effect^2)^2))
+  pm_ci_lower <- pm - 1.96 * pm_se
+  pm_ci_upper <- pm + 1.96 * pm_se
+  pm_pvalue <- 2 * (1 - pnorm(abs(pm / pm_se)))
+  print(paste("Proportion Mediated (PM):", pm))
+  print(paste("PM_se:", pm_se, "PM_ci_lower:", pm_ci_lower, "PM_ci_upper:", pm_ci_upper, "PM_pvalue:", pm_pvalue))
+  
+  main_results <- rbind(main_results, data.frame(
+    Mediator = mediator,
+    Total_Effect = total_effect,
+    Total_CI_Lower = c_estimate - 1.96 * c_se,
+    Total_CI_Upper = c_estimate + 1.96 * c_se,
+    Total_P_Value = c_pvalue,
+    Direct_Effect = direct_effect,
+    Direct_CI_Lower = c_prime_estimate - 1.96 * c_prime_se,
+    Direct_CI_Upper = c_prime_estimate + 1.96 * c_prime_se,
+    Direct_P_Value = c_prime_pvalue,
+    Indirect_Effect = indirect_effect,
+    Indirect_CI_Lower = indirect_ci_lower,
+    Indirect_CI_Upper = indirect_ci_upper,
+    Indirect_P_Value = indirect_pvalue,
+    Proportion_Mediated = pm,
+    PM_CI_Lower = pm_ci_lower,
+    PM_CI_Upper = pm_ci_upper,
+    PM_P_Value = pm_pvalue
+  ))
+  
+  supplementary_results <- rbind(supplementary_results, data.frame(
+    Mediator = mediator,
+    a_Estimate = a_estimate,
+    a_Std_Error = a_se,
+    a_P_Value = a_pvalue,
+    b_Estimate = b_estimate,
+    b_Std_Error = b_se,
+    b_P_Value = b_pvalue,
+    c_Estimate = c_estimate,
+    c_Std_Error = c_se,
+    c_P_Value = c_pvalue,
+    c_prime_Estimate = c_prime_estimate,
+    c_prime_Std_Error = c_prime_se,
+    c_prime_P_Value = c_prime_pvalue,
+    Total_Effect = total_effect,
+    Direct_Effect = direct_effect,
+    Indirect_Effect = indirect_effect,
+    Indirect_Effect_Std_Error = indirect_se,
+    Indirect_P_Value = indirect_pvalue,
+    Proportion_Mediated = pm,
+    PM_Std_Error = pm_se,
+    PM_P_Value = pm_pvalue
+  ))
+}
+inflammation_overall_total <- main_results
+inflammation_overall_total_supp <- supplementary_results
+
+print(main_results)
+saveRDS(main_results,"inflammation_overall_total.rds")
+print(supplementary_results)
+saveRDS(supplementary_results,"inflammation_overall_total_supp.rds")
+
+supplementary_results <- readRDS("inflammation_overall_total_supp.rds")
+
+supplementary_results <- supplementary_results %>% 
+  mutate(across(where(is.numeric), ~ { 
+    x <- round(., 4)  
+    ifelse(x == 0, "<0.0001", x)  
+    }))
+
+ft <- flextable(supplementary_results)
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "inflammation_overall_total_supp.docx")
+
+
+
+overal_isolation_mediator_mediate <- readRDS("inflammation_overall_total.rds")
+
+dt <- overal_isolation_mediator_mediate
+dt$" " <- paste(rep(" ", 20), collapse = " ")
+dt$"IE(95%CI)" <- ifelse(is.na(dt$Indirect_Effect), "",
+                         sprintf('%.4f (%.4f - %.4f)', dt$Indirect_Effect, dt$Indirect_CI_Lower, dt$Indirect_CI_Upper))
+
+dt$"PM(95%CI)" <- ifelse(is.na(dt$Proportion_Mediated), "",
+                         sprintf('%.5f (%.5f - %.5f)', dt$Proportion_Mediated, dt$PM_CI_Lower, dt$PM_CI_Upper))
+dt$"PM" <- ifelse(dt$Proportion_Mediated < 0.001, "<0.001",
+                  round(dt$Proportion_Mediated,3))
+dt$Indirect_P_Value
+dt$"P value" <- ifelse(dt$Indirect_P_Value < 0.0001, "<0.0001",
+                       round(dt$Indirect_P_Value, 4))
+
+dt$"P value" <- ifelse(dt$"P value" == "1e-04", "<0.0001",
+                       dt$"P value")
+
+dt$"Psig" <- ifelse(dt$Indirect_P_Value <= 0.001, "***",
+                    ifelse(dt$Indirect_P_Value <= 0.01, "**",
+                           ifelse(dt$Indirect_P_Value <= 0.05, "*", "")))
+print(str(dt))
+print(table(dt$`IE(95%CI)`,useNA = "ifany"))
+
+p <- forest(dt[, c(1,21, 18,19,22,23)],
+            est = dt$Indirect_Effect,
+            lower = dt$Indirect_CI_Lower,
+            upper = dt$Indirect_CI_Upper,
+            sizes = 0.6,
+            ci_column = 3,
+            ref_line = 0,
+            arrow_lab = c("lower risk", "higher risk"),
+            xlim = c(-0.01,0.01),
+            ticks_at = c(-0.01,0,0.01),
+            #theme = tm,
+            footnote = "overal mediation cell isolation"
+)
+p
+
+ggsave("inflammation_overall_total.pdf", plot = p, width = 100, height = 100, units = "in", device = "pdf",limitsize = FALSE)
+
+##inflammation female
+main_results <- data.frame()
+supplementary_results <- data.frame()
+dummy_data <- readRDS("infla_mediators.rds")
+mediator_vars <- c("Lym","Mono","Neu","PLT","WBC",
+                   "CRP","Lym_Mono_ratio","Neu_Lym_ratio",
+                   "PLT_Lym_ratio","sys_infammation")
+
+covariates <- c("Age",
+                "Race","Diastolic_blood_pressure",
+                "Systolic_blood_pressure","BMI","UK_Center",
+                "Employment","Education","Smoking_status","Alcohol_status",
+                "Hand_grip","day_exposure","diet_score", "depress_mood",
+                "sleep_score","Townsend_deprivation_index",
+                "Waist_to_hip_ratio","Family_cancer",
+                "Overall_health_rating")
+
+dummy_data <- filter(dummy_data, Sex == "Female")
+main_results <- data.frame()
+supplementary_results <- data.frame()
+for (mediator in mediator_vars) {
+  
+  if (is.factor(dummy_data[[mediator]]) && nlevels(dummy_data[[mediator]]) == 2) {
+    print(paste("Processing binary variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = binomial)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+    
+  } else if (is.numeric(dummy_data[[mediator]])) {
+    print(paste("Processing continuous variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = gaussian)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|t|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+    
+  } else if (grepl("_", mediator) && is.numeric(dummy_data[[mediator]])) {
+    print(paste("Processing dummy variable:", mediator))
+    
+    covariates_for_model <- covariates[!covariates %in% mediator]
+    
+    formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_total_effect <- coxph(formula_total_effect, data = dummy_data)
+    c_estimate <- coef(model_total_effect)[1]
+    print(paste("c_estimate:", c_estimate))
+    c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+    c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+    print(paste("c_se:", c_se, "c_pvalue:", c_pvalue))
+    
+    formula_a <- as.formula(paste(mediator, "~ isolation +", paste(covariates_for_model, collapse = " + ")))
+    model_a <- glm(formula_a, data = dummy_data, family = binomial)
+    a_estimate <- coef(model_a)[2]
+    print(paste("a_estimate:", a_estimate))
+    a_se <- summary(model_a)$coef[2, "Std. Error"]
+    a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+    print(paste("a_se:", a_se, "a_pvalue:", a_pvalue))
+    
+    formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~ isolation +", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+    model_direct_effect <- coxph(formula_direct_effect, data = dummy_data)
+    c_prime_estimate <- coef(model_direct_effect)[1]
+    b_estimate <- coef(model_direct_effect)[2]
+    print(paste("c_prime_estimate:", c_prime_estimate, "b_estimate:", b_estimate))
+    c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+    b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+    c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+    b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+    print(paste("c_prime_se:", c_prime_se, "b_se:", b_se))
+    print(paste("c_prime_pvalue:", c_prime_pvalue, "b_pvalue:", b_pvalue))
+  }
+  
+  indirect_effect <- a_estimate * b_estimate
+  indirect_se <- sqrt((a_estimate^2 * b_se^2) + (b_estimate^2 * a_se^2))
+  indirect_ci_lower <- indirect_effect - 1.96 * indirect_se
+  indirect_ci_upper <- indirect_effect + 1.96 * indirect_se
+  indirect_pvalue <- 2 * (1 - pnorm(abs(indirect_effect / indirect_se)))
+  print(paste("indirect_effect:", indirect_effect, "indirect_se:", indirect_se))
+  print(paste("indirect_ci_lower:", indirect_ci_lower, "indirect_ci_upper:", indirect_ci_upper, "indirect_pvalue:", indirect_pvalue))
+  
+  total_effect <- c_estimate
+  direct_effect <- c_prime_estimate
+  pm <- indirect_effect / total_effect
+  pm_se <- sqrt((indirect_se / total_effect)^2 + ((indirect_effect * c_se / total_effect^2)^2))
+  pm_ci_lower <- pm - 1.96 * pm_se
+  pm_ci_upper <- pm + 1.96 * pm_se
+  pm_pvalue <- 2 * (1 - pnorm(abs(pm / pm_se)))
+  print(paste("Proportion Mediated (PM):", pm))
+  print(paste("PM_se:", pm_se, "PM_ci_lower:", pm_ci_lower, "PM_ci_upper:", pm_ci_upper, "PM_pvalue:", pm_pvalue))
+  
+  main_results <- rbind(main_results, data.frame(
+    Mediator = mediator,
+    Total_Effect = total_effect,
+    Total_CI_Lower = c_estimate - 1.96 * c_se,
+    Total_CI_Upper = c_estimate + 1.96 * c_se,
+    Total_P_Value = c_pvalue,
+    Direct_Effect = direct_effect,
+    Direct_CI_Lower = c_prime_estimate - 1.96 * c_prime_se,
+    Direct_CI_Upper = c_prime_estimate + 1.96 * c_prime_se,
+    Direct_P_Value = c_prime_pvalue,
+    Indirect_Effect = indirect_effect,
+    Indirect_CI_Lower = indirect_ci_lower,
+    Indirect_CI_Upper = indirect_ci_upper,
+    Indirect_P_Value = indirect_pvalue,
+    Proportion_Mediated = pm,
+    PM_CI_Lower = pm_ci_lower,
+    PM_CI_Upper = pm_ci_upper,
+    PM_P_Value = pm_pvalue
+  ))
+  
+  supplementary_results <- rbind(supplementary_results, data.frame(
+    Mediator = mediator,
+    a_Estimate = a_estimate,
+    a_Std_Error = a_se,
+    a_P_Value = a_pvalue,
+    b_Estimate = b_estimate,
+    b_Std_Error = b_se,
+    b_P_Value = b_pvalue,
+    c_Estimate = c_estimate,
+    c_Std_Error = c_se,
+    c_P_Value = c_pvalue,
+    c_prime_Estimate = c_prime_estimate,
+    c_prime_Std_Error = c_prime_se,
+    c_prime_P_Value = c_prime_pvalue,
+    Total_Effect = total_effect,
+    Direct_Effect = direct_effect,
+    Indirect_Effect = indirect_effect,
+    Indirect_Effect_Std_Error = indirect_se,
+    Indirect_P_Value = indirect_pvalue,
+    Proportion_Mediated = pm,
+    PM_Std_Error = pm_se,
+    PM_P_Value = pm_pvalue
+  ))
+}
+
+inflammation_female_total <- main_results
+inflammation_female_total_supp <- supplementary_results
+
+print(main_results)
+saveRDS(main_results,"inflammation_female_total.rds")
+print(supplementary_results)
+saveRDS(supplementary_results,"inflammation_female_total_supp.rds")
+
+supplementary_results <- readRDS("inflammation_female_total_supp.rds")
+
+supplementary_results <- supplementary_results %>% 
+     mutate(across(where(is.numeric), ~ { 
+         x <- round(., 4)  
+         ifelse(x == 0, "<0.0001", x)  
+       }))
+
+ft <- flextable(supplementary_results)
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "inflammation_female_total_supp.rds.docx")
+
+
+female_isolation_mediator_mediate <- readRDS("inflammation_female_total.rds")
+
+dt <- female_isolation_mediator_mediate
+dt$" " <- paste(rep(" ", 20), collapse = " ")
+dt$"IE(95%CI)" <- ifelse(is.na(dt$Indirect_Effect), "",
+                         sprintf('%.4f (%.4f - %.4f)', dt$Indirect_Effect, dt$Indirect_CI_Lower, dt$Indirect_CI_Upper))
+
+dt$"PM(95%CI)" <- ifelse(is.na(dt$Proportion_Mediated), "",
+                         sprintf('%.5f (%.5f - %.5f)', dt$Proportion_Mediated, dt$PM_CI_Lower, dt$PM_CI_Upper))
+dt$"PM" <- ifelse(dt$Proportion_Mediated < 0.001, "<0.001",
+                  round(dt$Proportion_Mediated, 3))
+dt$"P value" <- ifelse(dt$Indirect_P_Value < 0.0001, "<0.0001",
+                       round(dt$Indirect_P_Value, 4))
+
+dt$"Psig" <- ifelse(dt$Indirect_P_Value <= 0.001, "***",
+                    ifelse(dt$Indirect_P_Value <= 0.01, "**",
+                           ifelse(dt$Indirect_P_Value <= 0.05, "*", "")))
+print(str(dt))
+print(table(dt$`IE(95%CI)`,useNA = "ifany"))
+p <- forest(dt[, c(1,21, 18,19,22,23)],
+            est = dt$Indirect_Effect,
+            lower = dt$Indirect_CI_Lower,
+            upper = dt$Indirect_CI_Upper,
+            sizes = 0.6,
+            ci_column = 3,
+            ref_line = 0,
+            arrow_lab = c("lower risk", "higher risk"),
+            xlim = c(-0.01,0.01),
+            ticks_at = c(-0.01,0,0.01),
+            #theme = tm,
+            footnote = "inflammation_female_total"
+)
+p
+ggsave("inflammation_female_total.pdf", plot = p, width = 100, height = 100, units = "in", device = "pdf",limitsize = FALSE)
+
+
+
+main_results <- data.frame()
+supplementary_results <- data.frame()
+infla_mediators <- readRDS("infla_mediators.rds")
+dummy_data <- filter(infla_mediators,Sex == "Female")
+
+mediator_vars <- c("Lym","Mono","Neu","PLT","WBC",
+                   "CRP","Lym_Mono_ratio","Neu_Lym_ratio",
+                   "PLT_Lym_ratio","sys_infammation")
+
+covariates <- c("Age",
+                "Race","Diastolic_blood_pressure",
+                "Systolic_blood_pressure","BMI","UK_Center",
+                "Employment","Education","Smoking_status","Alcohol_status",
+                "Hand_grip","day_exposure","diet_score", "depress_mood",
+                "sleep_score","Townsend_deprivation_index",
+                "Waist_to_hip_ratio","Family_cancer",
+                "Overall_health_rating")
+
+female_data <- c("Breast cancer", "Lung cancer", 
+                 "Uterine cancer", "Bladder cancer", 
+                 "Ovarian cancer", "Stomach cancer")
+analyze_mediators_by_cancer <- function(data, mediator_vars, covariates, exposure, model_formulas) {
+  main_results <- data.frame()
+  supplementary_results <- data.frame()
+  
+  for (type in female_data) {
+    temp_data <- data %>%
+      dplyr::filter(cancer_name == !!type | indicator == 0)
+    
+    for (mediator in mediator_vars) {
+      
+      if (is.factor(temp_data[[mediator]]) && nlevels(temp_data[[mediator]]) == 2) {
+        print(paste("Processing binary variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = binomial)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+        
+      } else if (is.numeric(temp_data[[mediator]])) {
+        print(paste("Processing continuous variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = gaussian)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|t|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+        
+      } else {
+        print(paste("Processing dummy variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = binomial)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+      }
+      
+      indirect_effect <- a_estimate * b_estimate
+      indirect_se <- sqrt((a_estimate^2 * b_se^2) + (b_estimate^2 * a_se^2))
+      indirect_ci_lower <- indirect_effect - 1.96 * indirect_se
+      indirect_ci_upper <- indirect_effect + 1.96 * indirect_se
+      indirect_pvalue <- 2 * (1 - pnorm(abs(indirect_effect / indirect_se)))
+      
+      total_effect <- c_estimate
+      direct_effect <- c_prime_estimate
+      pm <- indirect_effect / total_effect
+      pm_se <- sqrt((indirect_se / total_effect)^2 + ((indirect_effect * c_se / total_effect^2)^2))
+      pm_ci_lower <- pm - 1.96 * pm_se
+      pm_ci_upper <- pm + 1.96 * pm_se
+      pm_pvalue <- 2 * (1 - pnorm(abs(pm / pm_se)))
+      
+      main_results <- rbind(main_results, data.frame(
+        Cancer_Type = type,
+        Mediator = mediator,
+        Total_Effect = total_effect,
+        Total_CI_Lower = c_estimate - 1.96 * c_se,
+        Total_CI_Upper = c_estimate + 1.96 * c_se,
+        Total_PValue = c_pvalue,
+        Direct_Effect = direct_effect,
+        Direct_CI_Lower = c_prime_estimate - 1.96 * c_prime_se,
+        Direct_CI_Upper = c_prime_estimate + 1.96 * c_prime_se,
+        Direct_PValue = c_prime_pvalue,
+        Indirect_Effect = indirect_effect,
+        Indirect_CI_Lower = indirect_ci_lower,
+        Indirect_CI_Upper = indirect_ci_upper,
+        Indirect_PValue = indirect_pvalue,
+        PM = pm,
+        PM_CI_Lower = pm_ci_lower,
+        PM_CI_Upper = pm_ci_upper,
+        PM_PValue = pm_pvalue
+      ))
+      
+      supplementary_results <- rbind(supplementary_results, data.frame(
+        Cancer_Type = type,
+        Mediator = mediator,
+        Exposure = exposure,
+        A_Estimate = a_estimate,
+        A_SE = a_se,
+        A_PValue = a_pvalue,
+        B_Estimate = b_estimate,
+        B_SE = b_se,
+        B_PValue = b_pvalue,
+        Total_Effect = total_effect,
+        Direct_Effect = direct_effect
+      ))
+    }
+  }
+  
+  return(list(main_results = main_results, supplementary_results = supplementary_results))
+}
+
+results <- analyze_mediators_by_cancer(
+  data = dummy_data, 
+  mediator_vars = mediator_vars,
+  covariates = covariates, 
+  exposure = "isolation", 
+  model_formulas = list(
+    total_effect = "Surv(age_entry, age_event, indicator) ~ ExposureVariable + covariates",
+    a_effect = "Mediator ~ ExposureVariable + covariates",
+    direct_effect = "Surv(age_entry, age_event, indicator) ~ ExposureVariable + Mediator + covariates"
+  )
+)
+
+print(results$main_results)
+
+main_results <- as.data.frame(results$main_results)
+supplementary_results <- as.data.frame(results$supplementary_results)
+
+inflammation_female_subca <- main_results
+inflammation_female_subca_supp <- supplementary_results
+print(main_results)
+saveRDS(main_results,"inflammation_female_subca.rds")
+print(supplementary_results)
+saveRDS(supplementary_results,"inflammation_female_subca_supp.rds")
+
+
+supplementary_results <- readRDS("inflammation_female_subca_supp.rds")
+
+supplementary_results <- supplementary_results %>% 
+  mutate(across(where(is.numeric), ~ { 
+    x <- round(., 4)  
+    ifelse(x == 0, "<0.0001", x)  
+  }))
+
+ft <- flextable(supplementary_results)
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "inflammation_female_subca_supp.docx")
+
+
+
+female_cell <- readRDS("inflammation_female_subca.rds")
+
+results_df <- female_cell
+table(results_df$Indirect_Effect)
+get_color <- function(IE, p_value) {
+  if (is.na(IE) || IE == Inf || IE == -Inf || p_value > 0.99) {
+    return("white")
+  }
+  
+  color_base <- ifelse(IE > 0, "#8B0000", "#006400") 
+  
+  if (p_value <= 0.001) {
+    alpha <- 1
+  } else if (p_value <= 0.01) {
+    alpha <- 1 - (p_value - 0.001) / (0.01 - 0.001) * 0.5
+  } else if (p_value <= 0.99) {
+    alpha <- 0.5 - (p_value - 0.01) / (0.99 - 0.01) * 0.5
+  } else {
+    alpha <- 0.5
+  }
+  
+  alpha <- ifelse(alpha < 0, 0, ifelse(alpha > 1, 1, alpha)) 
+  color <- col2rgb(color_base) / 255
+  color <- rgb(color[1], color[2], color[3], alpha = alpha)
+  
+  return(color)
+}
+names(results_df)
+results_df$color <- mapply(get_color, results_df$Indirect_Effect, results_df$Indirect_PValue)
+########################################
+
+results_df <- results_df %>%
+  group_by(Cancer_Type) %>%
+  mutate(corrected_p = p.adjust(Indirect_PValue, method = "bonferroni")) %>%
+  ungroup() 
+############################
+results_df <- results_df %>%
+  mutate(significance = case_when(
+    corrected_p < 0.05 ~ "b",
+    Indirect_PValue < 0.05 ~ "a",
+    TRUE ~ ""
+  ))
+
+unique(results_df$Mediator)
+#####################
+results_dfatype <- c("Breast cancer","Lung cancer","Uterine cancer", "Bladder cancer", "Ovarian cancer", "Stomach cancer")
+
+bbbtype <- c("Lym"          ,   "Mono"  ,          "Neu"     ,        "PLT"     ,        "WBC"       ,
+             "CRP"        ,    
+             "Lym_Mono_ratio"  ,"Neu_Lym_ratio" ,  "PLT_Lym_ratio"  , "sys_infammation")
+
+results_df$Subgroup <- factor(results_df$Cancer_Type, levels = results_dfatype)
+results_df$Subtype <- factor(results_df$Mediator, levels = bbbtype)
+
+x_levels <- length(unique(results_df$Subgroup))
+y_levels <- length(unique(results_df$Subtype))
+
+aspect_ratio <- 1 / 1
+
+bbbtype_new <- c("Lym"          ,   "Mono"  ,          "Neu"     ,        "PLT"     ,        "WBC"       ,
+                 "CRP"        ,    
+                 "Lym Mono ratio"  ,"Neu Lym ratio" ,  "PLT Lym ratio"  , "sys infammation")
+
+label_map <- setNames(bbbtype_new, bbbtype)
+
+
+p1 <- ggplot(results_df, aes(x = Subgroup, y = Subtype, fill = color)) +
+  geom_tile(color = "black", size = 0.1) + 
+  geom_text(aes(label = ifelse(significance != "", significance, "")), color = "black", size = 4, vjust = 0.5, hjust = 0.5) + 
+  theme_minimal(base_size = 12) + 
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    axis.ticks = element_blank(),
+    axis.title = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
+    axis.text.y = element_text(size = 10), 
+    plot.title = element_text(hjust = 0.5, size = 16), 
+    legend.position = "right",
+    plot.caption = element_text(size = 10) 
+  ) +
+  labs(
+    title = "Isolation Heatmap",
+    x = "Subgroup",
+    y = "Subtype",
+    fill = "Significance",
+    caption = "a p < 0.05, b p < 0.05 (after bonferroni adjusted)\nRed: Upregulation, Green: Downregulation\nColor intensity: The deeper the color, the higher the significance"
+  ) + 
+  scale_fill_identity() +
+  coord_fixed(ratio = 1) + 
+  scale_x_discrete(labels = label_map) + 
+  scale_y_discrete(labels = label_map) 
+p1
+ggsave("inflammation_female_subca.pdf", plot = p, width = 8, height = 8, units = "in", device = "pdf",limitsize = FALSE)
+
+aa <- readRDS("inflammation_female_subca.rds")
+
+results_df <- aa
+head(aa)
+IE_P_value <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "Indirect_PValue")
+results_df <- results_df %>%
+  group_by(Cancer_Type) %>%
+  mutate(corrected_p = p.adjust(Indirect_PValue, method = "bonferroni")) %>%
+  ungroup() 
+P_value_adjusted <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "corrected_p")
+results_df$IE_CI <- ifelse(
+  is.na(results_df$Indirect_Effect),
+  " ",
+  sprintf('%.4f [%.4f - %.4f]', results_df$Indirect_Effect, results_df$Indirect_CI_Lower, results_df$Indirect_CI_Upper)
+)
+IE_CI <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "IE_CI")
+##PM(CI)
+results_df$PM_CI <- ifelse(
+  is.na(results_df$PM),
+  " ",
+  sprintf('%.4f [%.4f - %.4f]', results_df$PM, results_df$PM_CI_Lower, results_df$PM_CI_Upper)
+)
+PM_CI <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "PM_CI")
+
+
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = IE_P_value, style = "table_template")
+print(doc, target = "inflammation_female_subca_IE_P_value_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = P_value_adjusted, style = "table_template")
+print(doc, target = "inflammation_female_subca_IE_P_value_adjusted_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = IE_CI, style = "table_template")
+print(doc, target = "inflammation_female_subca_IE_CI_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = PM_CI, style = "table_template")
+print(doc, target = "inflammation_female_subca_PM_CI_wide.docx")
+
+
+
+
+main_results <- data.frame()
+supplementary_results <- data.frame()
+dummy_data <- readRDS("infla_mediators.rds")
+dummy_data <- filter(dummy_data,Sex == "Male")
+
+mediator_vars <- c("Lym","Mono","Neu","PLT","WBC",
+                   "CRP","Lym_Mono_ratio","Neu_Lym_ratio",
+                   "PLT_Lym_ratio","sys_infammation")
+
+covariates <- c("Age",
+                "Race","Diastolic_blood_pressure",
+                "Systolic_blood_pressure","BMI","UK_Center",
+                "Employment","Education","Smoking_status","Alcohol_status",
+                "Hand_grip","day_exposure","diet_score", "depress_mood",
+                "sleep_score","Townsend_deprivation_index",
+                "Waist_to_hip_ratio","Family_cancer",
+                "Overall_health_rating")
+
+male_data <- c("Bladder cancer")
+analyze_mediators_by_cancer <- function(data, mediator_vars, covariates, exposure, model_formulas) {
+  main_results <- data.frame()
+  supplementary_results <- data.frame()
+  
+  for (type in male_data) {
+    temp_data <- data %>%
+      dplyr::filter(cancer_name == !!type | indicator == 0)
+    
+    for (mediator in mediator_vars) {
+      
+      if (is.factor(temp_data[[mediator]]) && nlevels(temp_data[[mediator]]) == 2) {
+        print(paste("Processing binary variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = binomial)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+        
+      } else if (is.numeric(temp_data[[mediator]])) {
+        print(paste("Processing continuous variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = gaussian)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|t|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+        
+      } else {
+        print(paste("Processing dummy variable:", mediator, "for cancer:", type))
+        
+        covariates_for_model <- covariates[!covariates %in% mediator]
+        
+        formula_total_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_total_effect <- coxph(formula_total_effect, data = temp_data)
+        c_estimate <- coef(model_total_effect)[1]
+        c_se <- summary(model_total_effect)$coef[1, "se(coef)"]
+        c_pvalue <- summary(model_total_effect)$coef[1, "Pr(>|z|)"]
+        
+        formula_a <- as.formula(paste(mediator, "~", exposure, "+", paste(covariates_for_model, collapse = " + ")))
+        model_a <- glm(formula_a, data = temp_data, family = binomial)
+        a_estimate <- coef(model_a)[2]
+        a_se <- summary(model_a)$coef[2, "Std. Error"]
+        a_pvalue <- summary(model_a)$coef[2, "Pr(>|z|)"]
+        
+        formula_direct_effect <- as.formula(paste("Surv(age_entry, age_event, indicator) ~", exposure, "+", mediator, "+", paste(covariates_for_model, collapse = " + ")))
+        model_direct_effect <- coxph(formula_direct_effect, data = temp_data)
+        c_prime_estimate <- coef(model_direct_effect)[1]
+        b_estimate <- coef(model_direct_effect)[2]
+        c_prime_se <- summary(model_direct_effect)$coef[1, "se(coef)"]
+        b_se <- summary(model_direct_effect)$coef[2, "se(coef)"]
+        c_prime_pvalue <- summary(model_direct_effect)$coef[1, "Pr(>|z|)"]
+        b_pvalue <- summary(model_direct_effect)$coef[2, "Pr(>|z|)"]
+      }
+      
+      indirect_effect <- a_estimate * b_estimate
+      indirect_se <- sqrt((a_estimate^2 * b_se^2) + (b_estimate^2 * a_se^2))
+      indirect_ci_lower <- indirect_effect - 1.96 * indirect_se
+      indirect_ci_upper <- indirect_effect + 1.96 * indirect_se
+      indirect_pvalue <- 2 * (1 - pnorm(abs(indirect_effect / indirect_se)))
+      
+      total_effect <- c_estimate
+      direct_effect <- c_prime_estimate
+      pm <- indirect_effect / total_effect
+      pm_se <- sqrt((indirect_se / total_effect)^2 + ((indirect_effect * c_se / total_effect^2)^2))
+      pm_ci_lower <- pm - 1.96 * pm_se
+      pm_ci_upper <- pm + 1.96 * pm_se
+      pm_pvalue <- 2 * (1 - pnorm(abs(pm / pm_se)))
+      
+      main_results <- rbind(main_results, data.frame(
+        Cancer_Type = type,
+        Mediator = mediator,
+        Total_Effect = total_effect,
+        Total_CI_Lower = c_estimate - 1.96 * c_se,
+        Total_CI_Upper = c_estimate + 1.96 * c_se,
+        Total_PValue = c_pvalue,
+        Direct_Effect = direct_effect,
+        Direct_CI_Lower = c_prime_estimate - 1.96 * c_prime_se,
+        Direct_CI_Upper = c_prime_estimate + 1.96 * c_prime_se,
+        Direct_PValue = c_prime_pvalue,
+        Indirect_Effect = indirect_effect,
+        Indirect_CI_Lower = indirect_ci_lower,
+        Indirect_CI_Upper = indirect_ci_upper,
+        Indirect_PValue = indirect_pvalue,
+        PM = pm,
+        PM_CI_Lower = pm_ci_lower,
+        PM_CI_Upper = pm_ci_upper,
+        PM_PValue = pm_pvalue
+      ))
+      
+      supplementary_results <- rbind(supplementary_results, data.frame(
+        Cancer_Type = type,
+        Mediator = mediator,
+        Exposure = exposure,
+        A_Estimate = a_estimate,
+        A_SE = a_se,
+        A_PValue = a_pvalue,
+        B_Estimate = b_estimate,
+        B_SE = b_se,
+        B_PValue = b_pvalue,
+        Total_Effect = total_effect,
+        Direct_Effect = direct_effect
+      ))
+    }
+  }
+  
+  return(list(main_results = main_results, supplementary_results = supplementary_results))
+}
+
+results <- analyze_mediators_by_cancer(
+  data = dummy_data, 
+  mediator_vars = mediator_vars, 
+  covariates = covariates, 
+  exposure = "isolation", 
+  model_formulas = list(
+    total_effect = "Surv(age_entry, age_event, indicator) ~ ExposureVariable + covariates",
+    a_effect = "Mediator ~ ExposureVariable + covariates",
+    direct_effect = "Surv(age_entry, age_event, indicator) ~ ExposureVariable + Mediator + covariates"
+  )
+)
+
+main_results <- as.data.frame(results$main_results)
+inflammation_male_subca <- main_results
+supplementary_results <- as.data.frame(results$supplementary_results)
+inflammation_male_subca_supp <- supplementary_results
+print(main_results)
+saveRDS(main_results,"inflammation_male_subca.rds")
+print(supplementary_results)
+saveRDS(supplementary_results,"inflammation_male_subca_supp.rds")
+##
+
+supplementary_results <- readRDS("inflammation_male_subca_supp.rds")
+
+supplementary_results <- supplementary_results %>% 
+  mutate(across(where(is.numeric), ~ { 
+    x <- round(., 4)  
+    ifelse(x == 0, "<0.0001", x)  
+  }))
+
+ft <- flextable(supplementary_results)
+
+doc <- read_docx() %>%
+  body_add_flextable(ft)
+
+print(doc, target = "inflammation_male_subca_supp.docx")
+
+
+female_cell <- readRDS("inflammation_male_subca.rds")
+
+results_df <- female_cell
+get_color <- function(IE, p_value) {
+  if (is.na(IE) || IE == Inf || IE == -Inf || p_value > 0.99) {
+    return("white")
+  }
+  
+  color_base <- ifelse(IE > 0, "#8B0000", "#006400") 
+  
+  if (p_value <= 0.001) {
+    alpha <- 1
+  } else if (p_value <= 0.01) {
+    alpha <- 1 - (p_value - 0.001) / (0.01 - 0.001) * 0.5
+  } else if (p_value <= 0.99) {
+    alpha <- 0.5 - (p_value - 0.01) / (0.99 - 0.01) * 0.5
+  } else {
+    alpha <- 0.5
+  }
+  
+  alpha <- ifelse(alpha < 0, 0, ifelse(alpha > 1, 1, alpha)) 
+  color <- col2rgb(color_base) / 255
+  color <- rgb(color[1], color[2], color[3], alpha = alpha)
+  
+  return(color)
+}
+names(results_df)
+results_df$color <- mapply(get_color, results_df$Indirect_Effect, results_df$Indirect_PValue)
+########################################
+results_df <- results_df %>%
+  group_by(Cancer_Type) %>%
+  mutate(corrected_p = p.adjust(Indirect_PValue, method = "bonferroni")) %>%
+  ungroup() 
+############################
+results_df <- results_df %>%
+  mutate(significance = case_when(
+    corrected_p < 0.05 ~ "b",
+    Indirect_PValue < 0.05 ~ "a",
+    TRUE ~ ""
+  ))
+
+unique(results_df$Cancer_Type)
+#####################
+results_dfatype <- c("Esophageal cancer" ,"Bladder cancer" )
+bbbtype <- c("Lym"          ,   "Mono"  ,          "Neu"     ,        "PLT"     ,        "WBC"       ,
+             "CRP"        ,    
+             "Lym_Mono_ratio"  ,"Neu_Lym_ratio" ,  "PLT_Lym_ratio"  , "sys_infammation")
+
+results_df$Subgroup <- factor(results_df$Cancer_Type, levels = results_dfatype)
+results_df$Subtype <- factor(results_df$Mediator, levels = bbbtype)
+
+x_levels <- length(unique(results_df$Subgroup))
+y_levels <- length(unique(results_df$Subtype))
+
+aspect_ratio <- 1 / 1 
+bbbtype_new <- c("Lym"          ,   "Mono"  ,          "Neu"     ,        "PLT"     ,        "WBC"       ,
+                 "CRP"        ,    
+                 "Lym Mono ratio"  ,"Neu Lym ratio" ,  "PLT Lym ratio"  , "sys infammation")
+
+label_map <- setNames(bbbtype_new, bbbtype)
+
+
+p1 <- ggplot(results_df, aes(x = Subgroup, y = Subtype, fill = color)) +
+  geom_tile(color = "black", size = 0.1) + 
+  geom_text(aes(label = ifelse(significance != "", significance, "")), color = "black", size = 4, vjust = 0.5, hjust = 0.5) + 
+  theme_minimal(base_size = 12) + 
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    axis.ticks = element_blank(),
+    axis.title = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
+    axis.text.y = element_text(size = 10), 
+    plot.title = element_text(hjust = 0.5, size = 16), 
+    legend.position = "right",
+    plot.caption = element_text(size = 10) 
+  ) +
+  labs(
+    title = "Isolation Heatmap",
+    x = "Subgroup",
+    y = "Subtype",
+    fill = "Significance",
+    caption = "a p < 0.05, b p < 0.05 (after bonferroni adjusted)\nRed: Upregulation, Green: Downregulation\nColor intensity: The deeper the color, the higher the significance"
+  ) + 
+  scale_fill_identity() +
+  coord_fixed(ratio = 1) + 
+  scale_x_discrete(labels = label_map) + 
+  scale_y_discrete(labels = label_map) 
+
+print(p1)
+
+ggsave("inflammation_male_subca.pdf", plot = p, width = 8, height = 8, units = "in", device = "pdf",limitsize = FALSE)
+
+aa <- readRDS("inflammation_male_subca.rds")
+
+results_df <- aa
+IE_P_value <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "Indirect_PValue")
+results_df <- results_df %>%
+  group_by(Cancer_Type) %>%
+  mutate(corrected_p = p.adjust(Indirect_PValue, method = "bonferroni")) %>%
+  ungroup() 
+P_value_adjusted <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "corrected_p")
+results_df$IE_CI <- ifelse(
+  is.na(results_df$Indirect_Effect),
+  " ",
+  sprintf('%.4f [%.4f - %.4f]', results_df$Indirect_Effect, results_df$Indirect_CI_Lower, results_df$Indirect_CI_Upper)
+)
+IE_CI <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "IE_CI")
+results_df$PM_CI <- ifelse(
+  is.na(results_df$PM),
+  " ",
+  sprintf('%.4f [%.4f - %.4f]', results_df$PM, results_df$PM_CI_Lower, results_df$PM_CI_Upper)
+)
+PM_CI <- reshape2::dcast(results_df, Mediator ~ Cancer_Type, value.var = "PM_CI")
+
+
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = IE_P_value, style = "table_template")
+print(doc, target = "inflammation_male_subca_IE_P_value_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = P_value_adjusted, style = "table_template")
+print(doc, target = "inflammation_male_subca_IE_P_value_adjusted_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = IE_CI, style = "table_template")
+print(doc, target = "inflammation_male_subca_IE_CI_wide.docx")
+doc <- read_docx()
+doc <- doc %>%
+  body_add_table(value = PM_CI, style = "table_template")
+print(doc, target = "inflammation_male_subca_PM_CI_wide.docx")
+
+
+##########################################
+library(dagitty)
+library(ggdag)
+library(ggplot2)
+
+"A" <- "isolation"
+"B" <- "loneliness"
+"C" <- "family history"
+"D" <- "Sex"
+"E" <- "Age"
+"F" <- "Race"
+"G" <- "Geographical Factors"
+"H" <- "socioeconomic factor"
+"I" <- "Overall Health"
+"J" <- "Mental Health"
+"K" <- "behavioral factor"
+"L" <- "Physical Health"
+"M" <- "hormone status"
+"N" <- "age manopause"
+"O" <- "inflammation"
+"P" <- "cancer"
+
+dag <- dagitty::dagitty("dag{
+                         {A B} -> {M N O};
+                        {A B} -> P;
+                        {M N O} -> P;
+                        {G H I J K L} -> {M N O};
+                        {G H I J K L} -> {A B};
+                        {G H I J K L} -> P;
+                        {C D E F} -> {A B};
+                        {C D E F} -> P
+                        ;H -> J; J -> I;
+                       L -> I; K -> L
+                     }")
+
+dag_tidy <- ggdag::tidy_dagitty(dag, seed = 1
+) %>%
+  dag_label(labels = c("A" = "isolation",
+                       "B" = "loneliness",
+                       "C" = "family history",
+                       "D" = "Sex",
+                       "E" = "Age",
+                       "F" = "Race",
+                       "G" = "Geographical Factors",
+                       "H" = "socioeconomic factor",
+                       "I" = "Overall Health",
+                       "J" = "Mental Health",
+                       "K" = "behavioral factor",
+                       "L" = "Physical Health",
+                       "M" = "hormone status",
+                       "N" = "age manopause",
+                       "O" = "inflammation",
+                       "P" = "cancer"))
+
+
+ggdag(dag_tidy, node_size = 15, text_size = 5, label_size = 5, 
+      label_col = "blue", node = TRUE, edge_type = "link_arc") +
+  geom_dag_edges(edge_width = 1) +                              
+  geom_dag_label_repel(data = dag_tidy$data, aes(label = label)) + 
+  theme_dag_blank() +                                           
+  expand_plot(expand_x = expansion(c(0.1, 0.1)),               
+              expand_y = expansion(c(0.1, 0.1)))
+
+
