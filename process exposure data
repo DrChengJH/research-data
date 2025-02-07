@@ -1,0 +1,140 @@
+##exposure
+##loneliness
+setwd("E:/Desktop/analysis/origin data/origin")
+#read the data of isolation and loneliness
+social_2 <- read.csv("isolation.csv")
+social <- read_excel("social_support.xlsx")
+family_member <- read.csv("household.csv")
+columns_and_dataframes <- c("Number.in.household...Instance.0//family_member",
+                            "Frequency of friend/family visits | Instance 0//social",
+                            "Leisure/social activities | Instance 0//social")
+social <- social %>% rename("Participant.ID" = "Participant ID")
+exposure_final <- family_member[1]
+#add the correct column
+for (item in columns_and_dataframes) {
+  parts <- strsplit(item, "//")[[1]]
+  column_name <- parts[1]
+  dataframe_name <- parts[2]
+  
+  df <- get(dataframe_name)
+  
+  temp_df <- merge(exposure_final, df[c("Participant.ID", column_name)], by = "Participant.ID", all.x = TRUE)
+  
+  exposure_final <- temp_df
+}
+rownames(exposure_final) <- NULL
+
+#adjust
+exposure_final <- exposure_final %>%
+  mutate(`Frequency of friend/family visits | Instance 0` = case_when(
+    is.na(`Frequency of friend/family visits | Instance 0`) ~ NA_real_,  
+    `Frequency of friend/family visits | Instance 0` %in% c("Almost daily", 
+                                                            "About once a week", 
+                                                            "2-4 times a week", 
+                                                            "Once every few months", 
+                                                            "About once a month") ~ 0,
+    `Frequency of friend/family visits | Instance 0` %in% c("Never or almost never","No friends/family outside household") ~ 1,
+    TRUE ~ NA_real_  
+  ))
+
+exposure_final <- exposure_final %>%
+  mutate(`Leisure/social activities | Instance 0` = case_when(
+    is.na(`Leisure/social activities | Instance 0`) ~ NA_real_, 
+    `Leisure/social activities | Instance 0` %in% c("None of the above") ~ 1,
+    `Leisure/social activities | Instance 0` %in% c("Prefer not to answer","DO not know") ~ NA_real_,
+    TRUE ~ 0  
+  ))
+
+exposure_final <- exposure_final %>%
+  mutate(`Number.in.household...Instance.0` = case_when(
+    is.na(`Number.in.household...Instance.0`) ~ NA_real_,  
+    `Number.in.household...Instance.0` %in% c("1","") ~ 1,
+    `Number.in.household...Instance.0` %in% c("Do not know","Prefer not to answer") ~ NA_real_,
+    TRUE ~ 0  
+  ))
+
+#final data of isolation
+exposure_final$total_isolation_count <- NA
+
+na_indices <- apply(exposure_final[, c("Frequency of friend/family visits | Instance 0", "Leisure/social activities | Instance 0","Number.in.household...Instance.0")], 1, function(x) any(is.na(x)))
+exposure_final$total_isolation_count[!na_indices] <- rowSums(exposure_final[!na_indices, c("Frequency of friend/family visits | Instance 0", "Leisure/social activities | Instance 0","Number.in.household...Instance.0")], na.rm = TRUE)
+exposure_final$total_isolation_count[na_indices] <- NA
+
+exposure_final <- exposure_final %>%
+  mutate(final_isolation_count = case_when(
+    total_isolation_count %in% c("2","3") ~ 1,
+    total_isolation_count %in% c("0","1") ~ 0,
+    TRUE ~ NA_real_ 
+  ))
+isolation <- exposure_final[, c(1, 6)]
+isolation <- dplyr::rename(isolation, "isolation" = "final_isolation_count")
+names(isolation)
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(isolation,"isolation.rds")
+
+##loneliness
+setwd("E:/Desktop/analysis/origin data/origin")
+social <- read_xlsx("social_support.xlsx")
+social_2 <- read.csv("isolation.csv")
+names(social)
+social <- dplyr::rename(social, "Participant.ID" = "Participant ID")
+exposure_final <- social[1]
+
+columns_and_dataframes <- c(
+  "Able to confide | Instance 0//social",
+  "Loneliness..isolation...Instance.0//social_2")
+
+for (item in columns_and_dataframes) {
+  parts <- strsplit(item, "//")[[1]]
+  column_name <- parts[1]
+  dataframe_name <- parts[2]
+  
+  df <- get(dataframe_name)
+  
+  temp_df <- merge(exposure_final, df[c("Participant.ID", column_name)], by = "Participant.ID", all.x = TRUE)
+  
+  exposure_final <- temp_df
+}
+
+rownames(exposure_final) <- NULL
+exposure_final <- dplyr::rename(exposure_final, "Able.to.confide.|.Instance.0" = "Able to confide | Instance 0")
+names(exposure_final)
+
+loneliness <- exposure_final
+loneliness <- loneliness %>%
+  mutate(`Able.to.confide.|.Instance.0` = case_when(
+    `Able.to.confide.|.Instance.0` %in% c("Almost daily", 
+                                          "About once a week", 
+                                          "2-4 times a week", 
+                                          "Once every few months", 
+                                          "About once a month") ~ 0,
+    `Able.to.confide.|.Instance.0` == "Never or almost never" ~ 1,
+    TRUE ~ NA_real_  
+  ))
+
+loneliness <- loneliness %>%
+  mutate(`Loneliness..isolation...Instance.0` = case_when(
+    `Loneliness..isolation...Instance.0` == "No" ~ 0,
+    `Loneliness..isolation...Instance.0` == "Yes" ~ 1,
+    TRUE ~ NA_real_  
+  ))
+
+#build up dataframe
+loneliness$total_lonely_count <- NA
+na_indices <- apply(loneliness[, c("Able.to.confide.|.Instance.0", "Loneliness..isolation...Instance.0")], 1, function(x) any(is.na(x)))
+loneliness$total_lonely_count[!na_indices] <- rowSums(loneliness[!na_indices, c("Able.to.confide.|.Instance.0", "Loneliness..isolation...Instance.0")], na.rm = TRUE)
+loneliness$total_lonely_count[na_indices] <- NA
+loneliness_final <- loneliness[, c(1, 4)]
+
+loneliness_final <- loneliness_final %>%
+  mutate(total_lonely_count = case_when(
+    total_lonely_count == "2" ~ 1,
+    total_lonely_count %in% c("0","1") ~ 0,
+    TRUE ~ NA_real_  
+  ))
+
+loneliness_final <- dplyr::rename(loneliness_final, "loneliness" = "total_lonely_count")
+str(loneliness_final)
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(loneliness_final,"loneliness.rds")
+
