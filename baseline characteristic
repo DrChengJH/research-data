@@ -1,0 +1,303 @@
+#baseline
+setwd("E:/Desktop/analysis/analysis")
+saveRDS(incident,"incident.rds")
+incident <- readRDS("incident.rds")
+
+covariates_model1 <- c("Age", "Sex", "Race")
+covariates_model2 <- c("Age","Sex","Race","UK_Center",
+                       "Education","Employment","Townsend_deprivation_index",
+                       "Income", "Smoking_status", "Alcohol_status", 
+                       "day_exposure", "diet_score", "sleep_score")
+covariates_model3 <- c("Age","Sex","Race","Diastolic_blood_pressure",
+                       "Systolic_blood_pressure","BMI","UK_Center",
+                       "Employment","Education","Smoking_status","Alcohol_status",
+                       "Hand_grip","day_exposure","diet_score", "depress_mood",
+                       "sleep_score","Townsend_deprivation_index",
+                       "Waist_to_hip_ratio","Family_cancer",
+                       "Overall_health_rating","Income")
+
+model_formulas <- list(
+  Model1 = paste(" + ", paste(covariates_model1, collapse = " + "), sep = ""),
+  Model2 = paste(" + ", paste(covariates_model2, collapse = " + "), sep = ""),
+  Model3 = paste(" + ", paste(covariates_model3, collapse = " + "), sep = "")
+)
+
+
+baseline_model3 <- incident
+#isolation
+trial3 <- baseline_model3 %>% 
+  dplyr::select(isolation
+                , `Age`                                    
+                , `Sex`                                                   
+                , `Race`                            
+                , `UK_Center`
+                , `Employment`                           
+                , `Education`  
+                , `Income`              
+                , `Smoking_status`                                        
+                , `Alcohol_status`
+                , `Family_cancer`
+                , `Townsend_deprivation_index`
+                , `day_exposure`                                          
+                , `diet_score`                                            
+                , `sleep_score`
+                , `depress_mood`
+                , `BMI`  
+                , `Diastolic_blood_pressure`                              
+                , `Systolic_blood_pressure` 
+                , `Hand_grip`                        
+                , `Waist_to_hip_ratio`  
+                , `Overall_health_rating`
+  ) %>%
+  mutate(across(c(Sex, Race,
+                  `UK_Center`,
+                  `Family_cancer`,
+                  `Education`, `Employment`,
+                  `Smoking_status`,`Alcohol_status`
+                  ,`Income` , `depress_mood`
+  ), as.factor)) %>%
+  drop_na()
+
+trial3_summary <- trial3 %>%
+  tbl_summary(
+    by = isolation, 
+    type = list(
+      all_of(c(
+        "Age",
+        "Diastolic_blood_pressure",
+        "Systolic_blood_pressure",
+        "Hand_grip",
+        "day_exposure",
+        "diet_score",
+        "sleep_score",
+        "Townsend_deprivation_index",
+        "Waist_to_hip_ratio",
+        "BMI",
+        "Overall_health_rating"
+      )) ~ "continuous",
+      all_of(c(
+        "Sex",
+        "Race",
+        "Income",
+        "UK_Center",
+        "Family_cancer",
+        "Education",
+        "Employment",
+        "Smoking_status",
+        "Alcohol_status",
+        "depress_mood"
+      )) ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ± {sd}",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 2,  
+      all_categorical() ~ 0 
+    ),
+    missing = "no"  
+  ) %>%
+  add_p()  
+
+isolation_baseline <- trial3_summary
+isolation_baseline
+
+###########################
+
+##loneliness 
+baseline_model3 <- incident
+trial3 <- baseline_model3 %>% 
+  dplyr::select(loneliness
+                , `Age`                                    
+                , `Sex`                                                   
+                , `Race`                            
+                , `UK_Center`
+                , `Employment`                           
+                , `Education`  
+                , `Income`              
+                , `Smoking_status`                                        
+                , `Alcohol_status`
+                , `Family_cancer`
+                , `Townsend_deprivation_index`
+                , `day_exposure`                                          
+                , `diet_score`                                            
+                , `sleep_score`
+                , `depress_mood`
+                , `BMI`  
+                , `Diastolic_blood_pressure`                              
+                , `Systolic_blood_pressure` 
+                , `Hand_grip`                        
+                , `Waist_to_hip_ratio`  
+                , `Overall_health_rating`
+  ) %>%
+  mutate(across(c(Sex, Race,
+                  `UK_Center`,
+                  `Family_cancer`,
+                  `Education`, `Employment`,
+                  `Smoking_status`,`Alcohol_status`
+                  ,`Income` , `depress_mood`
+  ), as.factor)) %>%
+  drop_na()
+
+trial3_summary <- trial3 %>%
+  tbl_summary(
+    by = loneliness, 
+    type = list(
+      all_of(c(
+        "Age",
+        "Diastolic_blood_pressure",
+        "Systolic_blood_pressure",
+        "Hand_grip",
+        "day_exposure",
+        "diet_score",
+        "sleep_score",
+        "Townsend_deprivation_index",
+        "Waist_to_hip_ratio",
+        "BMI",
+        "Overall_health_rating"
+      )) ~ "continuous",
+      all_of(c(
+        "Sex",
+        "Race",
+        "Income",
+        "UK_Center",
+        "Family_cancer",
+        "Education",
+        "Employment",
+        "Smoking_status",
+        "Alcohol_status",
+        "depress_mood"
+      )) ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ± {sd}",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 2,  
+      all_categorical() ~ 0  
+    ),
+    missing = "no"  
+  ) %>%
+  add_p()  
+
+loneliness_baseline <- trial3_summary
+loneliness_baseline
+
+###########################
+
+##final 
+baseline_model3 <- incident
+trial3 <- baseline_model3 %>% 
+  dplyr::select(
+    , `Age`                                    
+    , `Sex`                                                   
+    , `Race`                            
+    , `UK_Center`
+    , `Employment`                           
+    , `Education`  
+    , `Income`              
+    , `Smoking_status`                                        
+    , `Alcohol_status`
+    , `Family_cancer`
+    , `Townsend_deprivation_index`
+    , `day_exposure`                                          
+    , `diet_score`                                            
+    , `sleep_score`
+    , `depress_mood`
+    , `BMI`  
+    , `Diastolic_blood_pressure`                              
+    , `Systolic_blood_pressure` 
+    , `Hand_grip`                        
+    , `Waist_to_hip_ratio`  
+    , `Overall_health_rating`
+  ) %>%
+  mutate(across(c(Sex, Race,
+                  `UK_Center`,
+                  `Family_cancer`,
+                  `Education`, `Employment`,
+                  `Smoking_status`,`Alcohol_status`,
+                  `Income`,`depress_mood`), as.factor)) %>%
+  drop_na()
+
+
+str(trial3)
+trial3_summary_overall <- trial3 %>%
+  tbl_summary(
+    type = list(
+      all_of(c(
+        "Age",
+        "Diastolic_blood_pressure",
+        "Systolic_blood_pressure",
+        "Hand_grip",
+        "day_exposure",
+        "diet_score",
+        "sleep_score",
+        "Townsend_deprivation_index",
+        "Waist_to_hip_ratio",
+        "BMI",
+        "Overall_health_rating"
+      )) ~ "continuous",
+      
+      all_of(c(
+        "Sex",
+        "Race",
+        "UK_Center",
+        "Family_cancer",
+        "Education",
+        "Employment",
+        "Smoking_status",
+        "Alcohol_status",
+        "Income",
+        "depress_mood"
+      )) ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ± {sd}",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      all_continuous() ~ 2,  
+      all_categorical() ~ 0  
+    ),
+    missing = "no"  
+  )
+trial3_summary_overall
+###########################
+trial3_summary_overall
+overall_baseline <- trial3_summary_overall
+
+#####merge
+merged_gtsummary <- tbl_merge(
+  list(overall_baseline, isolation_baseline)
+)
+
+final_baseline <- tbl_merge(
+  list(merged_gtsummary, loneliness_baseline)
+)
+final_baseline
+########################################
+selected_columns <- final_baseline$table_body %>%
+  dplyr::select(var_label, label, stat_0_1_1, stat_1_2_1, stat_2_2_1, p.value_2_1, stat_1_2, stat_2_2, starts_with("p.value")) %>%
+  mutate(across(starts_with("p.value"), ~ ifelse(. < 0.001, "<0.001", format(round(., 3), nsmall = 3)))) %>%
+  mutate(var_label = ifelse(var_label == label, var_label, " "), 
+         label = ifelse(var_label == label, " ", label))
+
+doc <- read_docx()
+
+ft <- flextable(selected_columns)
+
+ft <- set_header_labels(ft, 
+                        var_label = "Variable Label",
+                        label = "Label",
+                        stat_0_1_1 = "Overall,N = 356,122",
+                        stat_1_2_1 = "No social isolation, N = 335,355",
+                        stat_2_2_1 = "Social isolation, N = 20,767",
+                        p.value_2_1 = "P-Value",
+                        stat_1_2 = "No loneliness, N = 340,094",
+                        stat_2_2 = "Loneliness, N = 16,028",
+                        p.value_2 = "P-value")
+
+doc <- body_add_flextable(doc, value = ft)
+print(doc, target = "basic_baseline_doc.docx")
