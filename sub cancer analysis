@@ -1,0 +1,138 @@
+results_df <- data.frame(
+  sex = character(),
+  exposure = character(),
+  model = character(),
+  HR = numeric(),
+  CI_lower = numeric(),
+  CI_upper = numeric(),
+  CI = character(),
+  Pvalue = numeric(),
+  total_samples = integer(),
+  exposed_samples = integer(),
+  outcome_type = character(),
+  stringsAsFactors = FALSE
+)
+
+fit_and_extract_results <- function(data, covariate, sex, model_name, exposure){
+  
+  for (type in unique(data$cancer_name[data$cancer_name != 0])) {
+    temp_data <- data  %>%
+      filter(Sex == !!sex & (cancer_name == !!type | indicator == 0))
+    
+    model_formula <- model_formulas[[model_name]]
+    formula_str <- paste("Surv(temp_data$age_entry,temp_data$age_event, temp_data$indicator) ~", exposure, model_formula)
+    cox_model <- coxph(as.formula(formula_str), data = temp_data)
+    summary_model <- summary(cox_model)
+    coef_table <- as.data.frame(summary_model$coefficients)
+    
+    
+    HR <- exp(coef_table[exposure, "coef"])
+    lower_ci <- exp(coef_table[exposure, "coef"] - 1.96 * coef_table[exposure, "se(coef)"])
+    upper_ci <- exp(coef_table[exposure, "coef"] + 1.96 * coef_table[exposure, "se(coef)"])
+    p_value <- coef_table[exposure, "Pr(>|z|)"]
+    
+    incident_cases <- sum(temp_data$indicator == 1, na.rm = TRUE)
+    total_cases <- nrow(temp_data)
+    
+    
+    results_df <<- rbind(results_df, data.frame(
+      sex = sex,
+      exposure = exposure,
+      model = model_name,
+      HR = HR,
+      CI_lower = lower_ci,
+      CI_upper = upper_ci,
+      CI = paste0("[", lower_ci, "-", upper_ci, "]"),
+      Pvalue = p_value,
+      total_samples = total_cases,
+      exposed_samples = incident_cases,
+      outcome_type = type
+    ))
+    print(paste(model_name , type))
+    
+  }
+}
+
+fit_and_extract_results(incident, model_formulas$Model3,"Male","Model3","isolation")
+fit_and_extract_results(incident, model_formulas$Model2,"Male","Model2","isolation")
+fit_and_extract_results(incident, model_formulas$Model1,"Male","Model1","isolation")
+
+fit_and_extract_results(incident, model_formulas$Model1,"Male","Model1","loneliness")
+fit_and_extract_results(incident, model_formulas$Model2,"Male","Model2","loneliness")
+fit_and_extract_results(incident, model_formulas$Model3,"Male","Model3","loneliness")
+
+fit_and_extract_results(incident, model_formulas$Model1,"Female","Model1","isolation")
+fit_and_extract_results(incident, model_formulas$Model2,"Female","Model2","isolation")
+fit_and_extract_results(incident, model_formulas$Model3,"Female","Model3","isolation")
+
+fit_and_extract_results(incident, model_formulas$Model1,"Female","Model1","loneliness")
+fit_and_extract_results(incident, model_formulas$Model2,"Female","Model2","loneliness")
+fit_and_extract_results(incident, model_formulas$Model3,"Female","Model3","loneliness")
+
+results_df
+saveRDS(results_df,"cox_sub_cancer_total.rds")
+
+####################################
+#sub cancer
+results_df <- readRDS("cox_sub_cancer_total.rds")
+df_unique <- filter(results_df, outcome_type != "Other cancer")
+###################
+plot_forest_adjusted <- function(data, exposure_suffix, sex_dat, title,model_dat) {
+  fp_data <- data %>%
+    filter(exposure == exposure_suffix & sex == sex_dat & model == model_dat) %>%
+    dplyr::select(total_samples,exposed_samples,outcome_type,Pvalue, CI, HR, CI_lower, CI_upper)%>%
+    filter(!is.na(HR))
+  
+  print(fp_data)
+  if (nrow(fp_data) == 0) {
+    stop("Filtered data has no rows. Please check the exposure_suffix and sex values.")
+  }
+  dt <- fp_data
+  
+  dt$" " <- paste(rep(" ", 20), collapse = " ")
+  dt$"HR(95%CI)" <- ifelse(is.na(dt$HR), "",
+                           sprintf('%.2f (%.2f - %.2f)', dt$HR, dt$CI_lower, dt$CI_upper))
+  
+  dt$Total_Count_Exposed_Count <- paste(dt$total_samples, "(", dt$exposed_samples, ")", sep = "")
+  colnames(dt)[ncol(dt)] <- "Total(Exposed)"
+  
+  dt$"Psig" <- ifelse(dt$Pvalue <= 0.001, "***",
+                      ifelse(dt$Pvalue <= 0.01, "**",
+                             ifelse(dt$Pvalue <= 0.05, "*", "")))
+  
+  print(names(dt))
+  p <- forest(dt[, c(3, 11,9:10, 4, 12)],
+              est = dt$HR,
+              lower = dt$CI_lower,
+              upper = dt$CI_upper,
+              sizes = 0.6,
+              ci_column = 3,
+              ref_line = 1,
+              arrow_lab = c("lower risk", "higher risk"),
+              xlim = c(0, 4),
+              ticks_at = c(0, 1, 2, 3, 4),
+              #theme = tm,
+              footnote = title
+  )
+  print(p)
+  pdf(paste(title,".pdf", sep = ""), width = 100, height = 100)
+  print(p)
+  dev.off()
+  
+}
+plot_forest_adjusted(df_unique, "isolation", "Male", "isolation_male_model1","Model1")
+plot_forest_adjusted(df_unique, "isolation", "Male", "isolation_male_model2","Model2")
+plot_forest_adjusted(df_unique, "isolation", "Male", "isolation_male_model3","Model3")
+
+plot_forest_adjusted(df_unique, "isolation", "Female", "isolation_female_model1","Model1")
+plot_forest_adjusted(df_unique, "isolation", "Female", "isolation_female_model2","Model2")
+plot_forest_adjusted(df_unique, "isolation", "Female", "isolation_female_model3","Model3")
+#############################################################################
+
+plot_forest_adjusted(df_unique, "loneliness", "Male", "lonely_male_model1","Model1")
+plot_forest_adjusted(df_unique, "loneliness", "Male", "lonely_male_model2","Model2")
+plot_forest_adjusted(df_unique, "loneliness", "Male", "lonely_male_model3","Model3")
+
+plot_forest_adjusted(df_unique, "loneliness", "Female", "lonely_female_model1","Model1")
+plot_forest_adjusted(df_unique, "loneliness", "Female", "lonely_female_model2","Model2")
+plot_forest_adjusted(df_unique, "loneliness", "Female", "lonely_female_model3","Model3")
