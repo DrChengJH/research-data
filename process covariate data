@@ -1,0 +1,415 @@
+##covariates
+setwd("E:/Desktop/analysis/origin data/origin")
+depress <- read.csv("jiahao_participant.csv")
+#social <- read_excel("social_support.xlsx")
+covariate <- read.csv("covariate_mdmed.csv")
+covati <- read_excel("covariance.xlsx")
+alcho <- read_excel("1.11alcohol.xlsx")
+alcho <- dplyr::rename(alcho, `Participant.ID` = `Participant ID`)
+covariates_new <- read.csv("isolation.csv")
+tomm <- read.csv("covariates_SSB.csv")
+
+##############################################
+##model3
+cocariates <- c("Age.at.recruitment//covariate",
+                "Sex//covariate",
+                "Ethnic.background//covariate",
+                "Diastolic.blood.pressure..automated.reading...Instance.0...Array.0//covariates_new",
+                "Systolic.blood.pressure..automated.reading...Instance.0...Array.0//covariates_new",
+                "BMI//tomm",
+                "Hand.grip.strength..left....Instance.0//covariates_new",
+                "Hand.grip.strength..right....Instance.0//covariates_new",
+                "UK.Biobank.assessment.centre...Instance.0//covati",
+                "Average.total.household.income.before.tax...Instance.0//covariates_new",
+                "Qualifications...Instance.0//covariates_new",
+                "Current.employment.status...Instance.0//covariates_new",
+                "Smoking.status//covariate",
+                "Alcohol drinker status | Instance 0//alcho",
+                #"Summed.days.activity...Instance.0//covariates_new",
+                "Frequency.of.depressed.mood.in.last.2.weeks...Instance.0//depress",
+                "Time.spend.outdoors.in.summer...Instance.0//covariates_new",
+                "Time.spent.outdoors.in.winter...Instance.0//covariates_new",
+                "Cooked.vegetable.intake//covariate",
+                "Salad...raw.vegetable.intake//covariate",
+                "Fresh.fruit.intake//covariate",
+                "Dried.fruit.intake//covariate",
+                "Oily.fish.intake//covariate",
+                "Non.oily.fish.intake...Instance.0//covariates_new",
+                "Processed.meat.intake...Instance.0//covariates_new",
+                "Beef.intake...Instance.0//covariates_new",
+                "Lamb.mutton.intake//covariate",
+                "Pork.intake//covariate",
+                "Sleep.duration...Instance.0//covariates_new",
+                "Morning.evening.person..chronotype....Instance.0//covariates_new",
+                "Sleeplessness...insomnia...Instance.0//covariates_new",
+                "Snoring...Instance.0//covariates_new",
+                "Daytime.dozing...sleeping...Instance.0//covariates_new",
+                "Townsend_deprivation_index//tomm",
+                "Family_cancer//tomm",
+                "Waist_to_hip_ratio//tomm",
+                "Overall_health_rating//tomm")
+#build new data
+model3_data <- covariate[1]
+for (item in cocariates) {
+  parts <- strsplit(item, "//")[[1]]
+  column_name <- parts[1]
+  dataframe_name <- parts[2]
+  
+  df <- get(dataframe_name)
+  
+  if (!"Participant.ID" %in% names(df)) {
+    stop("Participant.ID is not exist in ", dataframe_name)
+  }
+  
+  if (!column_name %in% names(df)) {
+    stop(column_name, " is not exist ", dataframe_name)
+  }
+  
+  temp_df <- merge(model3_data, df[c("Participant.ID", column_name)], by = "Participant.ID", all.x = TRUE)
+  
+  model3_data <- temp_df
+}
+rownames(model3_data) <- NULL
+names(model3_data)
+############################
+##age
+names(model3_data)[names(model3_data) == "Age.at.recruitment"] <- "Age"
+##########################
+#ethinic
+model3_data <- model3_data %>%
+  mutate(`Ethnic.background` = case_when(
+    `Ethnic.background` %in% c("Any other white background", 
+                               "White", 
+                               "British", 
+                               "White and Asian",
+                               "Irish") ~ "White",
+    `Ethnic.background` %in% c("African",
+                               "Any other Asian background",
+                               "Any other Black background",
+                               "Any other mixed background",
+                               "Any other Black background",
+                               "Asian or Asian British",
+                               "Bangladeshi",
+                               "Black or Black British",
+                               "Caribbean",
+                               "Chinese",
+                               "Indian",
+                               "Mixed",
+                               "Other ethnic group",
+                               "Pakistani",
+                               "White and Black African",
+                               "White and Black Caribbean") ~ "Non white",
+    TRUE ~ NA_character_  
+  ))
+names(model3_data)[names(model3_data) == "Ethnic.background"] <- "Race"
+#########################################
+#blood pressure
+##"Diastolic.blood.pressure..automated.reading...Instance.0...Array.0"
+names(model3_data)[names(model3_data) == "Diastolic.blood.pressure..automated.reading...Instance.0...Array.0"] <- "Diastolic_blood_pressure"
+##"Systolic.blood.pressure..automated.reading...Instance.0...Array.0
+names(model3_data)[names(model3_data) == "Systolic.blood.pressure..automated.reading...Instance.0...Array.0"] <- "Systolic_blood_pressure"
+
+####################
+#Hand Grip
+model3_data <- model3_data %>%
+  mutate(Hand_grip = rowMeans(dplyr::select(., 8:9), na.rm = TRUE))
+model3_data <- model3_data %>%
+  dplyr::select(-8) %>%
+  dplyr::select(-8)
+##################################################################
+##UK.Biobank.assessment.centre...Instance.0
+model3_data <- model3_data %>%
+  mutate(UK.Biobank.assessment.centre...Instance.0 = case_when(
+    UK.Biobank.assessment.centre...Instance.0 %in% c("Barts", "Birmingham", "Bristol", "Bury", "Cheadle", 
+                                                     "Croydon", "Hounslow", "Leeds", "Liverpool", "Manchester", 
+                                                     "Middlesborough", "Newcastle", "Nottingham", "Oxford", 
+                                                     "Reading", "Sheffield", "Stockport", "Stoke") ~ "English",
+    UK.Biobank.assessment.centre...Instance.0 %in% c("Edinburgh", "Glasgow") ~ "Scotland",
+    UK.Biobank.assessment.centre...Instance.0 %in% c("Cardiff", "Swansea", "Wrexham") ~ "Wales",
+    TRUE ~ NA_character_  # Set to NA if location doesn't match any category
+  ))
+names(model3_data)[names(model3_data) == "UK.Biobank.assessment.centre...Instance.0"] <- "UK_Center"
+##################################################################################
+#household income
+##high: ≥ £52,000, medium: £18,000-£51,999, and low: < £18 000
+model3_data <- model3_data %>%
+  mutate(Average.total.household.income.before.tax...Instance.0 = case_when(
+    Average.total.household.income.before.tax...Instance.0 == "Less than 18,000" ~ "Low",
+    Average.total.household.income.before.tax...Instance.0 %in% c("18,000 to 30,999", "31,000 to 51,999") ~ "Medium",
+    Average.total.household.income.before.tax...Instance.0 %in% c("52,000 to 100,000", "Greater than 100,000") ~ "High",
+    TRUE ~ "Unknown"  # Set to NA if location doesn't match any category
+  ))
+names(model3_data)[names(model3_data) == "Average.total.household.income.before.tax...Instance.0"] <- "Income"
+##################################################################################
+#education
+model3_data <- model3_data %>%
+  mutate(Qualifications...Instance.0 = case_when(
+    grepl("NVQ or HND or HNC or equivalent|College or University degree", Qualifications...Instance.0) ~ "College/university degree",
+    Qualifications...Instance.0 == "Prefer not to answer" | is.na(Qualifications...Instance.0) ~ NA_character_,
+    TRUE ~ "Not college degree"
+  ))
+names(model3_data)[names(model3_data) == "Qualifications...Instance.0"] <- "Education"
+######################################################
+#employment
+model3_data <- model3_data %>%
+  mutate(Current.employment.status...Instance.0 = case_when(
+    grepl("In paid employment or self-employed", Current.employment.status...Instance.0) ~ "Employed",
+    grepl("Retired", Current.employment.status...Instance.0) ~ "Retired",
+    Current.employment.status...Instance.0 == "Prefer not to answer" | is.na(Current.employment.status...Instance.0) ~ NA_character_,
+    TRUE ~ "Others"
+  ))
+names(model3_data)[names(model3_data) == "Current.employment.status...Instance.0"] <- "Employment"
+###########################################################
+model3_data <- model3_data %>%
+  mutate(Smoking.status = case_when(
+    Smoking.status == "3Current" ~ "Current",
+    Smoking.status == "2Previous" ~ "Previous",
+    Smoking.status == "1Never" ~ "Never",
+    TRUE ~ NA_character_  
+  ))
+names(model3_data)[names(model3_data) == "Smoking.status"] <- "Smoking_status"
+
+######################################################################
+#alcohol
+model3_data <- model3_data %>%
+  mutate(`Alcohol drinker status | Instance 0` = case_when(
+    `Alcohol drinker status | Instance 0` == "Current" ~ "Current",
+    `Alcohol drinker status | Instance 0` == "Never" ~ "Never",
+    `Alcohol drinker status | Instance 0` == "Previous" ~ "Previous",
+    TRUE ~ NA_character_  # Set to NA if location doesn't match any category
+  ))
+names(model3_data)[names(model3_data) == "Alcohol drinker status | Instance 0"] <- "Alcohol_status"
+###############################################################################
+##depress mood
+model3_data <- model3_data %>% rename("depress_mood" = "Frequency.of.depressed.mood.in.last.2.weeks...Instance.0")
+model3_data <- model3_data %>%
+  mutate(depress_mood = case_when(
+    depress_mood %in% c("Not at all","Several days")  ~ "Low",
+    depress_mood %in% c("More than half the days","Nearly every day")  ~ "High",
+    TRUE ~ "Unknown"
+  ))
+####################################################################################
+##outdoor time
+##summer
+model3_data$Time.spend.outdoors.in.summer...Instance.0[model3_data$Time.spend.outdoors.in.summer...Instance.0 == "Less than an hour a day"] <- 0.5
+model3_data$Time.spend.outdoors.in.summer...Instance.0 <- as.numeric(as.character(model3_data$Time.spend.outdoors.in.summer...Instance.0))
+##wwinter
+model3_data$Time.spent.outdoors.in.winter...Instance.0[model3_data$Time.spent.outdoors.in.winter...Instance.0 == "Less than an hour a day"] <- 0.5
+model3_data$Time.spent.outdoors.in.winter...Instance.0 <- as.numeric(as.character(model3_data$Time.spent.outdoors.in.winter...Instance.0))
+# mean
+result <- rowMeans(model3_data[, c("Time.spend.outdoors.in.summer...Instance.0", "Time.spent.outdoors.in.winter...Instance.0")])
+#new column
+model3_data$day_exposure <- result
+#####################################################3
+##health diet score
+#vegetable
+model3_data <- model3_data %>%
+  mutate(vegetable_intake = `Salad...raw.vegetable.intake` + `Cooked.vegetable.intake`)
+model3_data$vegetable_intake <- ifelse(is.na(model3_data$vegetable_intake), NA, ifelse(model3_data$vegetable_intake > 4, 1, 0))
+#fruit
+model3_data <- model3_data %>%
+  mutate(fruits_intake = `Fresh.fruit.intake` + `Dried.fruit.intake`)
+model3_data$fruits_intake <- ifelse(is.na(model3_data$fruits_intake), NA, ifelse(model3_data$fruits_intake > 3, 1, 0))
+#fish
+model3_data <- model3_data %>%
+  mutate(Oily.fish.intake = case_when(
+    Oily.fish.intake == "rank3_2-4 times a week" ~ 3,
+    Oily.fish.intake == "rank4_5-6 times a week" ~ 5.5,
+    Oily.fish.intake == "rank1_Less than once a week" ~ 0.5,
+    Oily.fish.intake == "rank2_Once a week" ~ 1,
+    Oily.fish.intake == "rank5_Once or more daily" ~ 7,
+    Oily.fish.intake == "rank0_Never" ~ 0,
+    TRUE ~ NA  
+  ))
+model3_data <- model3_data %>%
+  mutate(Non.oily.fish.intake...Instance.0 = case_when(
+    Non.oily.fish.intake...Instance.0 == "2-4 times a week" ~ 3,
+    Non.oily.fish.intake...Instance.0 == "5-6 times a week" ~ 5.5,
+    Non.oily.fish.intake...Instance.0 == "Less than once a week" ~ 0.5,
+    Non.oily.fish.intake...Instance.0 == "Once a week" ~ 1,
+    Non.oily.fish.intake...Instance.0 == "Once or more daily" ~ 7,
+    Non.oily.fish.intake...Instance.0 == "Never" ~ 0,
+    TRUE ~ NA  
+  ))
+model3_data <- model3_data %>%
+  mutate(fish_intake = `Oily.fish.intake` + `Non.oily.fish.intake...Instance.0`)
+model3_data$fish_intake <- ifelse(is.na(model3_data$fish_intake), NA, ifelse(model3_data$fish_intake > 2, 1, 0))
+##meat
+model3_data <- model3_data %>%
+  mutate(Processed.meat.intake...Instance.0 = case_when(
+    Processed.meat.intake...Instance.0 == "2-4 times a week" ~ 0,
+    Processed.meat.intake...Instance.0 == "5-6 times a week" ~ 0,
+    Processed.meat.intake...Instance.0 == "Less than once a week" ~ 1,
+    Processed.meat.intake...Instance.0 == "Once a week" ~ 1,
+    Processed.meat.intake...Instance.0 == "Once or more daily" ~ 0,
+    Processed.meat.intake...Instance.0 == "Never" ~ 0,
+    TRUE ~ NA 
+  ))
+#######
+##beaf
+model3_data <- model3_data %>%
+  mutate(Beef.intake...Instance.0 = case_when(
+    Beef.intake...Instance.0 == "2-4 times a week" ~ 3,
+    Beef.intake...Instance.0 == "5-6 times a week" ~ 5.5,
+    Beef.intake...Instance.0 == "Less than once a week" ~ 0.5,
+    Beef.intake...Instance.0 == "Once a week" ~ 1,
+    Beef.intake...Instance.0 == "Once or more daily" ~ 7,
+    Beef.intake...Instance.0 == "Never" ~ 0,
+    TRUE ~ NA  
+  ))
+##buttom
+model3_data <- model3_data %>%
+  mutate(Lamb.mutton.intake = case_when(
+    Lamb.mutton.intake == "rank3_2-4 times a week" ~ 3,
+    Lamb.mutton.intake == "rank4_5-6 times a week" ~ 5.5,
+    Lamb.mutton.intake == "rank1_Less than once a week" ~ 0.5,
+    Lamb.mutton.intake == "rank2_Once a week" ~ 1,
+    Lamb.mutton.intake == "rank5_Once or more daily" ~ 7,
+    Lamb.mutton.intake == "rank0_Never" ~ 0,
+    TRUE ~ NA  
+  ))
+##poke
+model3_data <- model3_data %>%
+  mutate(Pork.intake = case_when(
+    Pork.intake == "rank3_2-4 times a week" ~ 3,
+    Pork.intake == "rank4_5-6 times a week" ~ 5.5,
+    Pork.intake == "rank1_Less than once a week" ~ 0.5,
+    Pork.intake == "rank2_Once a week" ~ 1,
+    Pork.intake == "rank5_Once or more daily" ~ 7,
+    Pork.intake == "rank0_Never" ~ 0,
+    TRUE ~ NA  
+  ))
+model3_data <- model3_data %>%
+  mutate(unprocced_meat_intake = `Beef.intake...Instance.0` + `Lamb.mutton.intake` + `Pork.intake`)
+model3_data$unprocced_meat_intake <- ifelse(is.na(model3_data$unprocced_meat_intake), NA, ifelse(model3_data$unprocced_meat_intake < 2, 1, 0))
+##diet score
+model3_data <- model3_data %>%
+  mutate(diet_score = unprocced_meat_intake + `Processed.meat.intake...Instance.0` + fish_intake + vegetable_intake + fruits_intake)
+######################################################
+##sleep score
+model3_data <- model3_data %>%
+  mutate(Sleep.duration...Instance.0 = case_when(
+    Sleep.duration...Instance.0 %in% c("1", "2", "3", "4", "5", "6", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24") ~ 0,
+    Sleep.duration...Instance.0 %in% c("7", "8") ~ 1,
+    TRUE ~ NA  
+  ))
+###################################################
+model3_data <- model3_data %>%
+  mutate(Sleeplessness...insomnia...Instance.0 = case_when(
+    Sleeplessness...insomnia...Instance.0 %in% c("Never/rarely", "Sometimes") ~ 1,
+    Sleeplessness...insomnia...Instance.0 == "Usually" ~ 0,
+    TRUE ~ NA  # Set to NA if frequency doesn't match any category
+  ))
+###################################################
+model3_data <- model3_data %>%
+  mutate(Daytime.dozing...sleeping...Instance.0 = case_when(
+    Daytime.dozing...sleeping...Instance.0 %in% c("Never/rarely", "Sometimes") ~ 1,
+    Daytime.dozing...sleeping...Instance.0 %in% c("All of the time", "Often") ~ 0,
+    TRUE ~ NA  # Set to NA if frequency doesn't match any category
+  ))
+#########################################
+#merge
+model3_data <- model3_data %>%
+  mutate(sleep_score = `Daytime.dozing...sleeping...Instance.0` + 
+           `Sleeplessness...insomnia...Instance.0` + 
+           `Sleep.duration...Instance.0`)
+#########################################################
+##depress mood
+#Frequency.of.depressed.mood.in.last.2.weeks...Instance.0
+str(model3_data)
+names(model3_data)
+model3_data_final <- model3_data[, c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,32, 33, 34, 35, 36, 37, 42, 43)]
+####################################################factor
+model3_data_final <- model3_data_final %>% 
+  mutate_if(~is.numeric(.) && length(unique(.)) <= 3, as.factor)
+model3_data_final <- model3_data_final %>% 
+  mutate_if(~is.character(.) && length(unique(.)) <= 4, as.factor)
+str(model3_data_final)
+names(model3_data_final)
+#save data
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(model3_data_final,"covariates.rds")
+
+
+##merge
+setwd("E:/Desktop/analysis/origin data/med")
+isolation <- readRDS("isolation.rds")
+loneliness <- readRDS("loneliness.rds")
+covariates <- readRDS("covariates.rds")
+outcome <- readRDS("outcome.rds")
+exposure <- merge(isolation, loneliness)
+
+
+###########117del
+##del117
+setwd("E:/Desktop/analysis/origin data/origin")
+delete <- readLines("withdraw99157_121_20231221.txt")
+
+exposure <- exposure[!exposure$Participant.ID %in% delete, ]
+
+exposure_no_NA <- na.omit(exposure)
+na_counts_pre <- colSums(is.na(exposure))
+na_counts_pre
+nrow(exposure)- nrow(exposure_no_NA)
+
+
+outcome$cancer_name <- as.character(outcome$cancer_name)
+outcome$cancer_sub_type <- as.character(outcome$cancer_sub_type)
+
+outcome$cancer_name[is.na(outcome$cancer_name)] <- 0
+outcome$cancer_sub_type[is.na(outcome$cancer_sub_type)] <- 0
+###########################
+incident_media <- merge(exposure_no_NA, outcome)
+
+nrow(incident_media)-nrow(exposure_no_NA)
+incident_media_plus <- merge(incident_media, covariates)
+
+incident <- na.omit(incident_media_plus)
+nrow(incident_media_plus) - nrow(incident)
+
+incident_final <- filter(incident, age_entry != age_event)
+nrow(incident)-nrow(incident_final)
+
+incident <- incident_final
+exp <- filter(incident, indicator == 1)
+exp_del <- filter(exp, age_event - age_entry > 1)
+nrow(exp)-nrow(exp_del)
+
+comp <- filter(incident, indicator == 0)
+incident <- rbind(exp_del, comp)
+nrow(incident)
+
+cancer_counts <- table(incident$cancer_name)
+cancer_counts
+rare_cancers <- names(cancer_counts[cancer_counts < 100])
+rare_cancers
+incident$cancer_name[incident$cancer_name %in% rare_cancers] <- "Other cancer"
+incident$cancer_name <- factor(incident$cancer_name)
+
+incident <- incident %>%
+  mutate(
+    age_group = as.factor(case_when(
+      Age >= 0 & Age < 50 ~ "0-49",
+      Age >= 50 & Age < 60 ~ "50-59",
+      Age >= 60 ~ "60 and older"
+    )),
+    bmi_group = as.factor(case_when(
+      BMI >= 25 ~ "Fat",
+      BMI <  25 ~ "Not_fat"
+    )),
+    blood_press_group = as.factor(case_when(
+      Systolic_blood_pressure >= 140 | Diastolic_blood_pressure >= 90 ~ "high blood pressure",
+      Systolic_blood_pressure < 90 & Diastolic_blood_pressure < 60 ~ "low blood pressure",
+      Systolic_blood_pressure >= 90 & Systolic_blood_pressure < 140 & Diastolic_blood_pressure >= 60 & Diastolic_blood_pressure < 90 ~ "norm blood pressure",
+      TRUE ~ "other"  
+    ))
+  )
+  
+aa <- colSums((is.na(incident)))
+aa
+incident$isolation <- as.factor(incident$isolation)
+incident$loneliness <- as.factor(incident$loneliness)
+str(incident$isolation)
+setwd("E:/Desktop/analysis/origin data/med")
+saveRDS(incident, "incident.rds")
+
