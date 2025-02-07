@@ -1,0 +1,64 @@
+#survival curv
+plot_survival <- function(variable, sex = NULL, title_prefix) {
+  if (!is.null(sex)) {
+    incident_filted <- dplyr::filter(incident, Sex == sex, !is.na(delta_years), !is.na(indicator))
+  } else {
+    incident_filted <- dplyr::filter(incident, !is.na(delta_years), !is.na(indicator))
+  }
+  
+  fit_DSS <- survfit(Surv(time = delta_years, event = indicator) ~ get(variable), data = incident_filted)
+  plot <- ggsurvplot(
+    fit_DSS,
+    data = incident_filted,
+    risk.table = TRUE,
+    pval = TRUE,
+    censor = FALSE,
+    conf.int = TRUE,
+    xlab = "Follow up time (year)",
+    legend.title = paste(variable),
+    legend.labs = c("low", "high"),
+    ylab = "Overall Survival (OS)",
+    palette = "lancet",
+    ylim = c(0.8, 1),
+    lwd = 0.1,
+    pval.coord = c(10, 1.0),
+    pval.size = 5,
+    risk.table.fontsize = 2.5,  
+    tables.theme = theme(axis.text.y = element_text(margin = margin(r = 0)))
+  )
+  
+  
+  
+  plot$plot <- ggpar(plot$plot)
+  return(plot)
+}
+
+
+plot_list <- list()
+
+variables <- c("isolation", "loneliness")
+sexes <- list(NULL, "Male", "Female")  
+titles <- c("Overall", "Male", "Female")
+
+for (i in seq_along(sexes)) {
+  for (variable in variables) {
+    plot_result <- plot_survival(variable, sexes[[i]]#, titles[i]
+    )
+    combined_plot <- ggarrange(plot_result$plot, plot_result$table, ncol = 1, heights = c(2, 1))
+    plot_list <- append(plot_list, list(combined_plot))
+  }
+}
+labels <- c("Overall isolation", "Overall loneliness", "Male isolation", "Male loneliness", "Female isolation", "Female loneliness")
+
+final_plot <- ggarrange(plotlist = plot_list, ncol = 2, nrow = 3, 
+                        common.legend = TRUE, legend = "bottom", 
+                        labels = labels, font.label = list(size = 14))
+
+final_plot <- annotate_figure(
+  final_plot,
+  top = text_grob("Title of Combined Plot", color = "black", face = "bold", size = 14),
+  bottom = text_grob("Figure Caption or Additional Notes", color = "black", size = 10)
+)
+final_plot
+ggsave("A4_survival_full.pdf", plot = final_plot, width = 210, height = 350, units = "mm")
+
