@@ -1,0 +1,316 @@
+
+incident <- readRDS("incident.rds")
+
+codes <- read.table(text = codes_text, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+
+
+incident$cancer_code <- NA
+
+for (i in 1:nrow(incident)) {
+  sub_type <- incident$cancer_sub_type[i]
+  
+  matching_indices <- grep(paste0("^", sub_type, "$"), codes$Histology_Type, ignore.case = TRUE)
+  
+  if (length(matching_indices) > 0) {
+    matching_codes <- codes$Code[matching_indices]
+    
+    incident$cancer_code[i] <- paste(matching_codes, collapse = " // ")
+  } else {
+    incident$cancer_code[i] <- "Not Found"
+  }
+}
+
+View(incident)
+
+saveRDS(incident, "incident_code.rds")
+
+codes_text_1 <- "
+Histology_Type\tCode\tDescription
+Renal cell carcinoma (RCC)\t8050, 8140, 8260, 8270, 8290, 8310, 8312, 8317, 8318\tKidney Cancer
+Transitional cell carcinoma (TCC)\t8070, 8071, 8077, 8081, 8120, 8122, 8130\tKidney Cancer
+Hepatocellular carcinoma (HCC)\t8170, 8171, 8172, 8173, 8174, 8175\tLiver Cancer
+Cholangiocarcinoma (CAC)\t8050, 8140, 8141, 8160, 8162, 8480, 8481, 8500, 8570\tLiver Cancer
+Small cell carcinoma (SCLC)\t8041, 8042, 8045, 8240, 8246\tLung Cancer
+Non-small cell carcinoma (NSCLC)\t8012, 8013, 8022, 8033, 8046, 8070, 8071, 8072, 8077, 8140, 8144, 8200, 8230, 8250, 8260, 8310, 8430, 8480, 8481, 8490, 8550, 8560, 8972, 8980\tLung Cancer
+Squamous cell carcinoma (ESCC)\t8140, 8144, 8145, 8260, 8263, 8480, 8481, 8490\tEsophageal Cancer
+Adenocarcinoma (EAC)\t8070, 8071, 8072, 8077\tEsophageal Cancer
+"
+
+codes_text_2 <- "
+Histology_Type\tCode\tDescription
+Glioma\t9380, 9381, 9382, 9390, 9391, 9392, 9393, 9395, 9400, 9401, 9411, 9420, 9423, 9424, 9425, 9430, 9440, 9441, 9442, 9450, 9451, 9460, 9470, 9471, 9472, 9473, 9474, 9480\tBrain Cancer
+Non-Hodgkin Lymphoma\t9590, 9591, 9596, 9597, 9670, 9671, 9673, 9675, 9678, 9679, 9680, 9684, 9687, 9688, 9689, 9690, 9691, 9695, 9698, 9699, 9700, 9701, 9702, 9705, 9708, 9709, 9712, 9714, 9716, 9717, 9718, 9719, 9726, 9727, 9728, 9729, 9731, 9732, 9734, 9735, 9737, 9738, 9760, 9761, 9764, 9820, 9823, 9826, 9827, 9831, 9832, 9833, 9834, 9835, 9836, 9837, 9940, 9948\tNon-Hodgkin Lymphoma
+Diffuse large B-cell lymphoma (DLBCL)\t9678, 9679, 9680, 9684, 9688, 9712, 9735, 9737, 9738\tNon-Hodgkin Lymphoma
+Follicular lymphoma (FL)\t9690, 9691, 9695, 9698\tNon-Hodgkin Lymphoma
+Chronic lymphocytic leukemia/Small lymphocytic lymphoma (CLL/SLL)\t9670, 9823\tNon-Hodgkin Lymphoma
+Marginal-zone lymphoma (MZL)\t9689, 9699, 9760, 9764\tNon-Hodgkin Lymphoma
+"
+
+codes_text2 <- paste(codes_text_1, codes_text_2, sep = "\n")
+codes_text2
+codes2 <- read.table(text = codes_text2, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+codes2
+
+
+saveRDS(codes2,"codes.rds")
+names(incident)
+incident$cancer_historical_type <- NA
+
+for (i in 1:nrow(incident)) {
+  codes_in_row <- incident$cancer_code[i]
+  cancer_name <- incident$cancer_name[i]
+  
+  matching_types <- c()
+  
+  if (codes_in_row != "Not Found" && !is.na(codes_in_row)) {
+    codes_list <- unlist(strsplit(codes_in_row, " // "))
+    
+    codes_list <- sub("/.*", "", codes_list)
+    
+    potential_matches <- codes2[grepl(cancer_name, codes2$Description, ignore.case = TRUE), ]
+    
+    for (j in 1:nrow(potential_matches)) {
+      codes_for_type <- unlist(strsplit(potential_matches$Code[j], ", "))
+      
+      if (any(codes_list %in% codes_for_type)) {
+        matching_types <- c(matching_types, potential_matches$Histology_Type[j])
+      }
+    }
+  }
+  
+  if (length(matching_types) > 0) {
+    incident$cancer_historical_type[i] <- paste(unique(matching_types), collapse = " // ")
+  } else {
+    incident$cancer_historical_type[i] <- "Not Found"
+  }
+}
+
+aa <- filter(incident, cancer_name == "Liver cancer")
+table(aa$cancer_sub_type,useNA = "ifany")
+table(incident$cancer_historical_type)
+summary(incident)
+saveRDS(incident, “subcancer_clean.rds”)
+table(incident$cancer_name)
+#########################################################
+covariates_model1 <- c("Age", "Sex", "Race")
+covariates_model2 <- c("Age","Sex","Race","UK_Center",
+                       "Education","Employment","Townsend_deprivation_index",
+                       "Income", "Smoking_status", "Alcohol_status", 
+                       "day_exposure", "diet_score", "sleep_score")
+covariates_model3 <- c("Age","Sex","Race","Diastolic_blood_pressure",
+                       "Systolic_blood_pressure","BMI","UK_Center",
+                       "Employment","Education","Smoking_status","Alcohol_status",
+                       "Hand_grip","day_exposure","diet_score", "depress_mood",
+                       "sleep_score","Townsend_deprivation_index",
+                       "Waist_to_hip_ratio","Family_cancer",
+                       "Overall_health_rating","Income")
+
+model_formulas <- list(
+  Model1 = paste(" + ", paste(covariates_model1, collapse = " + "), sep = ""),
+  Model2 = paste(" + ", paste(covariates_model2, collapse = " + "), sep = ""),
+  Model3 = paste(" + ", paste(covariates_model3, collapse = " + "), sep = "")
+)
+results_df <- data.frame(
+  sex = character(),
+  exposure = character(),
+  model = character(),
+  HR = numeric(),
+  CI_lower = numeric(),
+  CI_upper = numeric(),
+  CI = character(),
+  Pvalue = numeric(),
+  total_samples = integer(),
+  exposed_samples = integer(),
+  outcome_type = character(),
+  stringsAsFactors = FALSE
+)
+names(incident)
+fit_and_extract_results <- function(data, covariate, sex, model_name, exposure){
+  
+  for (type in unique(data$cancer_historical_type[data$cancer_historical_type != "Not Found"])) {
+    temp_data <- data  %>%
+      filter(Sex == !!sex & (cancer_historical_type == !!type | indicator == 0))
+    
+    model_formula <- model_formulas[[model_name]]
+    formula_str <- paste("Surv(temp_data$age_entry,temp_data$age_event, temp_data$indicator) ~", exposure, model_formula)
+    cox_model <- coxph(as.formula(formula_str), data = temp_data)
+    summary_model <- summary(cox_model)
+    coef_table <- as.data.frame(summary_model$coefficients)
+    
+    
+    HR <- exp(coef_table[exposure, "coef"])
+    lower_ci <- exp(coef_table[exposure, "coef"] - 1.96 * coef_table[exposure, "se(coef)"])
+    upper_ci <- exp(coef_table[exposure, "coef"] + 1.96 * coef_table[exposure, "se(coef)"])
+    p_value <- coef_table[exposure, "Pr(>|z|)"]
+    
+    incident_cases <- sum(temp_data$indicator == 1, na.rm = TRUE)
+    total_cases <- nrow(temp_data)
+    
+    
+    results_df <<- rbind(results_df, data.frame(
+      sex = sex,
+      exposure = exposure,
+      model = model_name,
+      HR = HR,
+      CI_lower = lower_ci,
+      CI_upper = upper_ci,
+      CI = paste0("[", lower_ci, "-", upper_ci, "]"),
+      Pvalue = p_value,
+      total_samples = total_cases,
+      exposed_samples = incident_cases,
+      outcome_type = type
+    ))
+    print(paste(model_name , type))
+    
+  }
+}
+#incident <- readRDS("subcancer_clean.rds")
+fit_and_extract_results(incident, model_formulas$Model3,"Male","Model3","isolation")
+fit_and_extract_results(incident, model_formulas$Model2,"Male","Model2","isolation")
+fit_and_extract_results(incident, model_formulas$Model1,"Male","Model1","isolation")
+
+fit_and_extract_results(incident, model_formulas$Model1,"Male","Model1","loneliness")
+fit_and_extract_results(incident, model_formulas$Model2,"Male","Model2","loneliness")
+fit_and_extract_results(incident, model_formulas$Model3,"Male","Model3","loneliness")
+
+fit_and_extract_results(incident, model_formulas$Model1,"Female","Model1","isolation")
+fit_and_extract_results(incident, model_formulas$Model2,"Female","Model2","isolation")
+fit_and_extract_results(incident, model_formulas$Model3,"Female","Model3","isolation")
+
+fit_and_extract_results(incident, model_formulas$Model1,"Female","Model1","loneliness")
+fit_and_extract_results(incident, model_formulas$Model2,"Female","Model2","loneliness")
+fit_and_extract_results(incident, model_formulas$Model3,"Female","Model3","loneliness")
+
+saveRDS(results_df, "cox_historical_cancer_total.rds")
+####################################
+#sub cancer
+results_df <- readRDS("cox_historical_cancer_total.rds")
+###################
+df_unique <- results_df
+head(df_unique)
+df_unique$outcome_type <- gsub(
+  "Non-Hodgkin Lymphoma // Diffuse large B-cell lymphoma \\(DLBCL\\)", 
+  "Diffuse large B-cell lymphoma (DLBCL)", 
+  df_unique$outcome_type
+)
+
+df_unique$outcome_type <- gsub(
+  "Non-Hodgkin Lymphoma // Follicular lymphoma \\(FL\\)", 
+  "Follicular lymphoma (FL)", 
+  df_unique$outcome_type
+)
+
+df_unique$outcome_type <- gsub(
+  "Non-Hodgkin Lymphoma // Chronic lymphocytic leukemia/Small lymphocytic lymphoma \\(CLL/SLL\\)", 
+  "Chronic lymphocytic leukemia or \n     Small lymphocytic lymphoma (CLL/SLL)", 
+  df_unique$outcome_type
+)
+
+df_unique$outcome_type <- paste0(strrep(" ", 5), df_unique$outcome_type)
+
+table(df_unique$outcome_type)
+group_mapping <- list(
+  "Lung cancer" = c(
+    "     Non-small cell carcinoma (NSCLC)",
+    "     Small cell carcinoma (SCLC)"
+  ),
+  "Non-Hodgkin Lymphoma" = c(
+    "     Diffuse large B-cell lymphoma (DLBCL)",
+    "     Chronic lymphocytic leukemia or \n     Small lymphocytic lymphoma (CLL/SLL)",
+    "     Follicular lymphoma (FL)",
+    "     Non-Hodgkin Lymphoma"
+  ),
+  "Kidney cancer" = c("     Renal cell carcinoma (RCC)", "     Transitional cell carcinoma (TCC)"),
+  "Liver cancer" = c("     Hepatocellular carcinoma (HCC)", "     Cholangiocarcinoma (CAC)"),
+  "Esophageal cancer" = c("     Adenocarcinoma (EAC)", "     Squamous cell carcinoma (ESCC)"),
+  "Brain cancer" = c("     Glioma")
+)
+
+
+plot_forest_adjusted <- function(data, exposure_suffix, sex_dat, title,model_dat) {
+  fp_data <- data %>%
+    filter(exposure == exposure_suffix & sex == sex_dat & model == model_dat) %>%
+    dplyr::select(total_samples,exposed_samples,outcome_type,Pvalue, CI, HR, CI_lower, CI_upper)%>%
+    filter(!is.na(HR))
+  
+  result <- data.frame()   
+  for (group in names(group_mapping)) {
+    subtypes <- group_mapping[[group]]
+    
+    group_data <- fp_data[fp_data$outcome_type %in% subtypes, ]
+    
+    title_row <- as.data.frame(matrix(" ", nrow = 1, ncol = ncol(fp_data))) 
+    colnames(title_row) <- colnames(fp_data)  
+    title_row$outcome_type <- group        
+    
+    result <- rbind(result, title_row, group_data)
+  }
+  
+  unassigned <- fp_data[!fp_data$outcome_type %in% unlist(group_mapping), ]
+  if (nrow(unassigned) > 0) {
+    unassigned_title <- as.data.frame(matrix(NA, nrow = 1, ncol = ncol(fp_data))) 
+    colnames(unassigned_title) <- colnames(fp_data)
+    unassigned_title$outcome_type <- "Unassigned"  
+    
+    result <- rbind(result, unassigned_title, unassigned)
+  }
+  
+  fp_data <- result
+  if (nrow(fp_data) == 0) {
+    stop("Filtered data has no rows. Please check the exposure_suffix and sex values.")
+  }
+  dt <- fp_data
+  
+  dt$" " <- paste(rep(" ", 20), collapse = " ")
+  dt$"HR(95%CI)" <- ifelse(is.na(as.numeric(dt$HR)), "",
+                           sprintf('%.2f (%.2f - %.2f)', as.numeric(dt$HR), as.numeric(dt$CI_lower), as.numeric(dt$CI_upper)))
+  
+  dt$Total_Count_Exposed_Count <- ifelse(is.na(as.numeric(dt$HR)), "",
+                                         paste(dt$total_samples, "(", dt$exposed_samples, ")", sep = ""))
+  
+  colnames(dt)[ncol(dt)] <- "Total(Exposed)"
+  
+  dt$"Psig" <- ifelse(is.na(as.numeric(dt$Pvalue)), "",
+                      ifelse(as.numeric(dt$Pvalue) <= 0.001, "***",
+                             ifelse(as.numeric(dt$Pvalue) <= 0.01, "**",
+                                    ifelse(as.numeric(dt$Pvalue) <= 0.05, "*", ""))))
+  dt$Pvalue <- ifelse(is.na(as.numeric(dt$Pvalue)), "",
+                      ifelse(as.numeric(dt$Pvalue) < 0.0001, "<0.0001",
+                             sprintf("%.4f", as.numeric(dt$Pvalue))))
+  print(names(dt))
+  
+  p <- forest(dt[, c(3, 11,9:10, 4, 12)],
+              est = as.numeric(dt$HR),
+              lower = as.numeric(dt$CI_lower),
+              upper = as.numeric(dt$CI_upper),
+              sizes = 0.6,
+              ci_column = 3,
+              ref_line = 1,
+              arrow_lab = c("lower risk", "higher risk"),
+              xlim = c(0, 4),
+              ticks_at = c(0, 1, 2, 3, 4),
+              #theme = tm,
+              footnote = title
+  )
+  print(p)
+  pdf(paste(title,".pdf", sep = ""), width = 100, height = 100)
+  print(p)
+  dev.off()
+  
+}
+plot_forest_adjusted(df_unique, "isolation", "Male", "isolation_male_model1","Model1")
+plot_forest_adjusted(df_unique, "isolation", "Male", "isolation_male_model2","Model2")
+plot_forest_adjusted(df_unique, "isolation", "Male", "isolation_male_model3","Model3")
+
+plot_forest_adjusted(df_unique, "isolation", "Female", "isolation_female_model1","Model1")
+plot_forest_adjusted(df_unique, "isolation", "Female", "isolation_female_model2","Model2")
+plot_forest_adjusted(df_unique, "isolation", "Female", "isolation_female_model3","Model3")
+#############################################################################
+
+plot_forest_adjusted(df_unique, "loneliness", "Male", "lonely_male_model1","Model1")
+plot_forest_adjusted(df_unique, "loneliness", "Male", "lonely_male_model2","Model2")
+plot_forest_adjusted(df_unique, "loneliness", "Male", "lonely_male_model3","Model3")
+
+plot_forest_adjusted(df_unique, "loneliness", "Female", "lonely_female_model1","Model1")
+plot_forest_adjusted(df_unique, "loneliness", "Female", "lonely_female_model2","Model2")
+plot_forest_adjusted(df_unique, "loneliness", "Female", "lonely_female_model3","Model3")
