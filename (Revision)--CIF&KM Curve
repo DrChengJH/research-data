@@ -1,0 +1,300 @@
+# CIF+KM Curve
+library(cmprsk) # Competing risk model
+library(dplyr) # Data manipulation
+library(flextable) # Table formatting
+library(officer) # Word document export
+
+# Read data
+data <- readRDS("cmp_incident.rds")
+
+# Data check and preprocessing
+# Ensure event coding is correct: 0=censored, 1=target event (cancer incidence), 2=competing event (death)
+table(data$indicator)
+
+# Calculate follow-up time (years)
+data$ftime <- data$age_event - data$age_entry
+
+# Remove possible NA values
+data <- data %>%
+  filter(!is.na(ftime) & !is.na(indicator) & ftime > 0)
+
+# Define function to calculate 5-year CIF and confidence interval (optimized: fix index to matrix form)
+calculate_5year_cif <- function(ftime, fstatus) {
+  # Data validation: remove NA values
+  valid_idx <- !is.na(ftime) & !is.na(fstatus)
+  ftime_clean <- ftime[valid_idx]
+  fstatus_clean <- fstatus[valid_idx]
+ 
+  # Check if there is sufficient data
+  if (length(ftime_clean) == 0) {
+    return("Insufficient data")
+  }
+ 
+  # Check if there are any events
+  if (sum(fstatus_clean == 1) == 0) {
+    return("No events")
+  }
+ 
+  tryCatch({
+    # Fit competing risk model
+    cif_fit <- cuminc(ftime_clean, fstatus_clean, cencode = 0)
+   
+    # Extract CIF estimate at 5 years
+    cif_5yr <- timepoints(cif_fit, times = 5)
+   
+    # Get estimate and variance for event 1 (target event - cancer incidence) (fixed: use [1,1] index)
+    est <- cif_5yr$est[1, 1]
+    var_est <- cif_5yr$var[1, 1]
+   
+    # Calculate standard error and 95% confidence interval
+    se <- sqrt(var_est)
+    lower_ci <- max(0, est - 1.96 * se) # Ensure lower bound >= 0
+    upper_ci <- min(1, est + 1.96 * se) # Ensure upper bound <= 1
+   
+    # Format as string (round to 3 decimals)
+    cif_formatted <- paste0(round(est * 100, 3), "% (",
+                            round(lower_ci * 100, 3), "%, ",
+                            round(upper_ci * 100, 3), "%)")
+   
+    return(cif_formatted)
+  }, error = function(e) {
+    # If error, return error message
+    return(paste0("Error: ", e$message))
+  })
+}
+
+# Define function to calculate excess incidence and confidence interval (round to 3 decimals)
+calculate_excess_incidence <- function(cases_exposed, person_years_exposed,
+                                       cases_unexposed, person_years_unexposed) {
+  incidence_exposed <- (cases_exposed / person_years_exposed) * 10000
+  incidence_unexposed <- (cases_unexposed / person_years_unexposed) * 10000
+  excess_incidence <- incidence_exposed - incidence_unexposed
+  SE <- sqrt((incidence_exposed / cases_exposed) + (incidence_unexposed / cases_unexposed))
+  lower_CI <- excess_incidence - 1.96 * SE
+  upper_CI <- excess_incidence + 1.96 * SE
+  list(excess_incidence = round(excess_incidence, 3),
+       lower_CI = round(lower_CI, 3),
+       upper_CI = round(upper_CI, 3))
+}
+
+# Define general function for group statistics (optimized: extract common logic, reduce code duplication)
+compute_group_stats <- function(data_sub, ref_cases = NULL, ref_py = NULL, is_ref = FALSE) {
+  N <- nrow(data_sub)
+  cases <- sum(data_sub$indicator == 1)
+  py <- sum(data_sub$ftime)
+  rate <- round((cases / py) * 10000, 3) # Round to 3 decimals
+  cif <- calculate_5year_cif(data_sub$ftime, data_sub$indicator)
+ 
+  if (is.na(cases) || cases == 0 || is.null(ref_cases) || ref_cases == 0) {
+    irr <- ""
+    excess <- ""
+  } else if (is_ref) {
+    irr <- "1 [Reference]"
+    excess <- "0 [Reference]"
+  } else {
+    # Calculate IRR
+    irr_val <- rate / ((ref_cases / ref_py) * 10000)
+    se_log_irr <- sqrt(1 / cases + 1 / ref_cases)
+    log_irr <- log(irr_val)
+    irr_lower <- exp(log_irr - 1.96 * se_log_irr)
+    irr_upper <- exp(log_irr + 1.96 * se_log_irr)
+    irr <- paste0(round(irr_val, 3), " (",
+                  round(irr_lower, 3), " to ",
+                  round(irr_upper, 3), ")")
+   
+    # Calculate excess incidence
+    excess_results <- calculate_excess_incidence(cases, py, ref_cases, ref_py)
+    excess <- paste0(excess_results$excess_incidence, " (",
+                     excess_results$lower_CI, " to ",
+                     excess_results$upper_CI, ")")
+  }
+ 
+  list(N = N,
+       cases = cases,
+       py = round(py, 3), # Round to 3 decimals
+       rate = rate,
+       cif = cif,
+       irr = irr,
+       excess = excess)
+}
+
+# Initialize result table
+result_table <- data.frame(
+  Group = character(),
+  Exposure = character(),
+  N_Incident = numeric(),
+  Cases = numeric(),
+  Person_Years = numeric(),
+  Incident_Per_10000_PY = numeric(),
+  Five_Year_CIF = character(),
+  IRR = character(),
+  Excess_Incidence = character()
+)
+
+# Define analysis groups
+combinations <- list(
+  list(group = "Isolation", var = "isolation"),
+  list(group = "Loneliness", var = "loneliness")
+)
+
+# Main analysis loop (optimized: use general function)
+for (comb in combinations) {
+  group_name <- comb$group
+  group_var <- comb$var
+ 
+  # Filter data
+  data_filtered <- data %>% filter(!is.na(get(group_var)))
+ 
+  # Calculate overall data
+  stats_overall <- compute_group_stats(data_filtered)
+  result_table <- rbind(result_table, data.frame(
+    Group = group_name,
+    Exposure = "Overall",
+    N_Incident = stats_overall$N,
+    Cases = stats_overall$cases,
+    Person_Years = stats_overall$py,
+    Incident_Per_10000_PY = stats_overall$rate,
+    Five_Year_CIF = stats_overall$cif,
+    IRR = stats_overall$irr,
+    Excess_Incidence = stats_overall$excess,
+    stringsAsFactors = FALSE
+  ))
+ 
+  # Calculate unexposed group (reference)
+  data_unexposed <- data_filtered %>% filter(get(group_var) == 0)
+  stats_unexp <- compute_group_stats(data_unexposed, is_ref = TRUE)
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Exposure = "Unexposed",
+    N_Incident = stats_unexp$N,
+    Cases = stats_unexp$cases,
+    Person_Years = stats_unexp$py,
+    Incident_Per_10000_PY = stats_unexp$rate,
+    Five_Year_CIF = stats_unexp$cif,
+    IRR = stats_unexp$irr,
+    Excess_Incidence = stats_unexp$excess,
+    stringsAsFactors = FALSE
+  ))
+ 
+  # Calculate exposed group (relative to unexposed)
+  data_exposed <- data_filtered %>% filter(get(group_var) == 1)
+  stats_exp <- compute_group_stats(data_exposed,
+                                   ref_cases = stats_unexp$cases,
+                                   ref_py = sum(data_unexposed$ftime))
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Exposure = "Exposed",
+    N_Incident = stats_exp$N,
+    Cases = stats_exp$cases,
+    Person_Years = stats_exp$py,
+    Incident_Per_10000_PY = stats_exp$rate,
+    Five_Year_CIF = stats_exp$cif,
+    IRR = stats_exp$irr,
+    Excess_Incidence = stats_exp$excess,
+    stringsAsFactors = FALSE
+  ))
+}
+
+# Add joint effect separator row
+result_table <- rbind(result_table, data.frame(
+  Group = "Joint Effect",
+  Exposure = "",
+  N_Incident = NA,
+  Cases = NA,
+  Person_Years = NA,
+  Incident_Per_10000_PY = NA,
+  Five_Year_CIF = "",
+  IRR = "",
+  Excess_Incidence = "",
+  stringsAsFactors = FALSE
+))
+
+# Joint effect analysis (optimized: use general function, and fix ref_py calculation)
+data <- data %>%
+  mutate(exposure_category = case_when( # Rename for accuracy
+    isolation == 0 & loneliness == 0 ~ 1, # Reference group
+    isolation == 0 & loneliness == 1 ~ 2,
+    isolation == 1 & loneliness == 0 ~ 3,
+    isolation == 1 & loneliness == 1 ~ 4
+  ))
+
+joint_levels <- list(
+  list(name = "No isolation in no loneliness", level = 1),
+  list(name = "No isolation in loneliness", level = 2),
+  list(name = "Isolation in no loneliness", level = 3),
+  list(name = "Isolation in loneliness", level = 4)
+)
+
+# Calculate reference group data
+data_ref <- data %>% filter(exposure_category == 1)
+stats_ref <- compute_group_stats(data_ref, is_ref = TRUE)
+ref_cases <- stats_ref$cases
+ref_py <- sum(data_ref$ftime)
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Exposure = joint_levels[[1]]$name,
+  N_Incident = stats_ref$N,
+  Cases = stats_ref$cases,
+  Person_Years = stats_ref$py,
+  Incident_Per_10000_PY = stats_ref$rate,
+  Five_Year_CIF = stats_ref$cif,
+  IRR = stats_ref$irr,
+  Excess_Incidence = stats_ref$excess,
+  stringsAsFactors = FALSE
+))
+
+# Process other joint effect groups
+for (i in 2:4) {
+  level <- joint_levels[[i]]$level
+  exposure_name <- joint_levels[[i]]$name
+ 
+  data_group <- data %>% filter(exposure_category == level)
+  stats_group <- compute_group_stats(data_group, ref_cases = ref_cases, ref_py = ref_py)
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Exposure = exposure_name,
+    N_Incident = stats_group$N,
+    Cases = stats_group$cases,
+    Person_Years = stats_group$py,
+    Incident_Per_10000_PY = stats_group$rate,
+    Five_Year_CIF = stats_group$cif,
+    IRR = stats_group$irr,
+    Excess_Incidence = stats_group$excess,
+    stringsAsFactors = FALSE
+  ))
+}
+
+# Print final results
+print(result_table)
+
+# Use flextable to format table and export to Word (optimized: adjust column width and alignment)
+ft <- flextable(result_table) %>%
+  set_caption("Competing Risk Analysis Results: Social Isolation, Loneliness and Cancer Incidence") %>%
+  bold(part = "header") %>%
+  bg(part = "header", bg = "#DCE6F1") %>%
+  fontsize(part = "all", size = 10) %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  align(align = "center", part = "all") %>%
+  valign(valign = "center", part = "all") %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>% # Optimize layout
+  add_footer_lines("Note: IRR = Incidence Rate Ratio; CIF = Cumulative Incidence Function at 5 years; Values in parentheses are 95% confidence intervals.")
+
+# Export to Word document
+doc <- read_docx() %>%
+  body_add_flextable(ft) %>%
+  body_add_break() %>% # Add page break
+  body_add_par("Competing Risk Analysis Results", style = "heading 1")
+print(doc, target = "competing_risk_analysis_final_results.docx")
+
+cat("Analysis complete! Results saved to 'competing_risk_analysis_final_results.docx'\n")
+cat("Table includes the following columns:\n")
+cat("- Group: Analysis group (Isolation/Loneliness/Joint Effect)\n")
+cat("- Exposure: Exposure status\n")
+cat("- N_Incident: Number of subjects\n")
+cat("- Cases: Number of events\n")
+cat("- Person_Years: Person-years\n")
+cat("- Incident_Per_10000_PY: Incidence rate per 10,000 person-years\n")
+cat("- Five_Year_CIF: 5-year cumulative incidence (95% CI)\n")
+cat("- IRR: Incidence rate ratio (95% CI)\n")
+cat("- Excess_Incidence: Excess incidence (95% CI)\n")
