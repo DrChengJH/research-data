@@ -1,0 +1,405 @@
+data <- readRDS("")
+library(fastcmprsk)
+library(dplyr)
+library(data.table)
+library(flextable)
+library(officer)
+
+## Basic definitions
+covariates_model1 <- c("Age", "Sex", "Race")
+covariates_model2 <- c("Age","Sex","Race","UK_Center",
+                       "Education","Employment","Townsend_deprivation_index",
+                       "Income", "Smoking_status", "Alcohol_status",
+                       "day_exposure", "diet_score", "sleep_score")
+covariates_model3 <- c("Age","Sex","Race","MAP","BMI","UK_Center",
+                       "Employment","Education","Smoking_status","Alcohol_status",
+                       "Hand_grip","day_exposure","diet_score", "depress_mood",
+                       "sleep_score","Townsend_deprivation_index","Family_cancer",
+                       "Overall_health_rating","Income")
+
+incident <- data
+
+# Calculate Fine-Gray regression model (provided function, unmodified)
+calculate_fg <- function(data, filter_expr, group_var, covariates) {
+  data_filtered <- data %>% filter(eval(parse(text = filter_expr))) %>% na.omit()
+  formula <- as.formula(paste("Crisk(delta_years, indicator) ~", paste(c(group_var, covariates), collapse = " + ")))
+  fg_model <- tryCatch(
+    fastCrr(formula, data = data_filtered, variance = TRUE),
+    error = function(e) NULL
+  )
+  if (is.null(fg_model)) {
+    return(list(sHR = NA, CI = "NA", CI_lower = NA, CI_upper = NA, p_value = "NA"))
+  }
+  sHR <- exp(fg_model$coef[1])
+  SE_log_sHR <- sqrt(fg_model$var[1, 1])
+  CI_lower <- exp(fg_model$coef[1] - 1.96 * SE_log_sHR)
+  CI_upper <- exp(fg_model$coef[1] + 1.96 * SE_log_sHR)
+  p_value <- 2 * (1 - pnorm(abs(fg_model$coef[1] / SE_log_sHR)))
+  p_value <- ifelse(p_value <= 0.001, "<0.001", sprintf("%.3f", p_value))
+  list(sHR = sHR, CI = paste0("[", round(CI_lower, 2), "-", round(CI_upper, 2), "]"),
+       CI_lower = CI_lower, CI_upper = CI_upper, p_value = p_value)
+}
+
+# New function: Generate sHR and PERM data (convert to competing risk model)
+calculate_shr_perm <- function(data, population = "all", exposure = "isolation") {
+  # Determine filter_expr
+  if (population == "male") {
+    filter_expr <- "Sex == 'Male'"
+  } else if (population == "female") {
+    filter_expr <- "Sex == 'Female'"
+  } else {
+    filter_expr <- "TRUE"
+  }
+ 
+  # Define covariate groups (based on categorization)
+  baseline_cov <- if (population == "all") c("Age", "Sex", "Race") else c("Age", "Race") # For male/female remove Sex
+  socio_cov <- c("Income", "Education", "Employment", "Townsend_deprivation_index")
+  behavioral_cov <- c("Smoking_status", "Alcohol_status", "diet_score", "day_exposure", "sleep_score")
+  physical_cov <- c("BMI", "MAP", "Hand_grip")
+  mental_cov <- c("depress_mood")
+  overall_cov <- c("Overall_health_rating")
+  family_cov <- c("Family_cancer")
+  geographic_cov <- c("UK_Center")
+ 
+  # Full model covariates (unique merge of all groups, baseline already includes Sex/Race)
+  full_cov <- unique(c(baseline_cov, socio_cov, behavioral_cov, physical_cov, mental_cov, overall_cov, family_cov, geographic_cov))
+ 
+  # Baseline model
+  res_baseline <- calculate_fg(data, filter_expr, exposure, baseline_cov)
+  print(res_baseline) # Print results (similar to original summary)
+  print("baseline_model")
+  shr_baseline <- res_baseline$sHR
+  ci_baseline_lower <- res_baseline$CI_lower
+  ci_baseline_upper <- res_baseline$CI_upper
+ 
+  # Socioeconomic model (baseline + socio)
+  cov_socio <- c(baseline_cov, socio_cov)
+  res_socio <- calculate_fg(data, filter_expr, exposure, cov_socio)
+  print(res_socio)
+  print("socioeconomic_model")
+  shr_socio <- res_socio$sHR
+  ci_socio_lower <- res_socio$CI_lower
+  ci_socio_upper <- res_socio$CI_upper
+  perm_socio <- (shr_baseline - shr_socio) / (shr_baseline - 1) * 100
+ 
+  # Health behavior model (baseline + behavioral)
+  cov_behavioral <- c(baseline_cov, behavioral_cov)
+  res_behavioral <- calculate_fg(data, filter_expr, exposure, cov_behavioral)
+  print(res_behavioral)
+  print("behavioral_model")
+  shr_behavioral <- res_behavioral$sHR
+  ci_behavioral_lower <- res_behavioral$CI_lower
+  ci_behavioral_upper <- res_behavioral$CI_upper
+  perm_behavioral <- (shr_baseline - shr_behavioral) / (shr_baseline - 1) * 100
+ 
+  # Physical health model (baseline + physical)
+  cov_physical <- c(baseline_cov, physical_cov)
+  res_physical <- calculate_fg(data, filter_expr, exposure, cov_physical)
+  print(res_physical)
+  print("physical_model")
+  shr_physical <- res_physical$sHR
+  ci_physical_lower <- res_physical$CI_lower
+  ci_physical_upper <- res_physical$CI_upper
+  perm_physical <- (shr_baseline - shr_physical) / (shr_baseline - 1) * 100
+ 
+  # Mental health model (baseline + mental)
+  cov_mental <- c(baseline_cov, mental_cov)
+  res_mental <- calculate_fg(data, filter_expr, exposure, cov_mental)
+  print(res_mental)
+  print("mental_health_model")
+  shr_mental <- res_mental$sHR
+  ci_mental_lower <- res_mental$CI_lower
+  ci_mental_upper <- res_mental$CI_upper
+  perm_mental <- (shr_baseline - shr_mental) / (shr_baseline - 1) * 100
+ 
+  # Overall health model (baseline + overall)
+  cov_overall <- c(baseline_cov, overall_cov)
+  res_overall <- calculate_fg(data, filter_expr, exposure, cov_overall)
+  print(res_overall)
+  print("overall_health_model")
+  shr_overall <- res_overall$sHR
+  ci_overall_lower <- res_overall$CI_lower
+  ci_overall_upper <- res_overall$CI_upper
+  perm_overall <- (shr_baseline - shr_overall) / (shr_baseline - 1) * 100
+ 
+  # Family history model (baseline + family)
+  cov_family <- c(baseline_cov, family_cov)
+  res_family <- calculate_fg(data, filter_expr, exposure, cov_family)
+  print(res_family)
+  print("Family_cancer_model")
+  shr_family <- res_family$sHR
+  ci_family_lower <- res_family$CI_lower
+  ci_family_upper <- res_family$CI_upper
+  perm_family <- (shr_baseline - shr_family) / (shr_baseline - 1) * 100
+ 
+  # Geographical factors model (baseline + geographic)
+  cov_geo <- c(baseline_cov, geographic_cov)
+  res_geo <- calculate_fg(data, filter_expr, exposure, cov_geo)
+  print(res_geo)
+  print("geographic_model")
+  shr_geo <- res_geo$sHR
+  ci_geo_lower <- res_geo$CI_lower
+  ci_geo_upper <- res_geo$CI_upper
+  perm_geo <- (shr_baseline - shr_geo) / (shr_baseline - 1) * 100
+ 
+  # Fully adjusted model (full)
+  res_full <- calculate_fg(data, filter_expr, exposure, full_cov)
+  print(res_full)
+  print("full_model")
+  shr_full <- res_full$sHR
+  ci_full_lower <- res_full$CI_lower
+  ci_full_upper <- res_full$CI_upper
+  perm_full <- (shr_baseline - shr_full) / (shr_baseline - 1) * 100
+ 
+  # Save data frame (sHR replaces HR)
+  results <- data.frame(
+    Adjustment = c("Minimally", "Socioeconomic", "Behavioral", "Physical Health", "Mental Health", "Overall Health", "Family History", "Geographical Factors", "ALL"),
+    sHR = c(shr_baseline, shr_socio, shr_behavioral, shr_physical, shr_mental, shr_overall, shr_family, shr_geo, shr_full),
+    Lower = c(ci_baseline_lower, ci_socio_lower, ci_behavioral_lower, ci_physical_lower, ci_mental_lower, ci_overall_lower, ci_family_lower, ci_geo_lower, ci_full_lower),
+    Upper = c(ci_baseline_upper, ci_socio_upper, ci_behavioral_upper, ci_physical_upper, ci_mental_upper, ci_overall_upper, ci_family_upper, ci_geo_upper, ci_full_upper),
+    PERM = c("", perm_socio, perm_behavioral, perm_physical, perm_mental, perm_overall, perm_family, perm_geo, perm_full)
+  )
+ 
+  return(results)
+}
+
+# Run function (for isolation)
+results_all_isolation <- calculate_shr_perm(data = incident, population = "all", exposure = "isolation")
+results_male_isolation <- calculate_shr_perm(data = incident, population = "male", exposure = "isolation")
+results_female_isolation <- calculate_shr_perm(data = incident, population = "female", exposure = "isolation")
+
+# Run function (for loneliness)
+results_all_loneliness <- calculate_shr_perm(data = incident, population = "all", exposure = "loneliness")
+results_male_loneliness <- calculate_shr_perm(data = incident, population = "male", exposure = "loneliness")
+results_female_loneliness <- calculate_shr_perm(data = incident, population = "female", exposure = "loneliness")
+
+saveRDS(results_all_isolation,"results_all_isolation.rds")
+saveRDS(results_all_loneliness,"results_all_loneliness.rds")
+saveRDS(results_female_isolation,"results_female_isolation.rds")
+saveRDS(results_female_loneliness,"results_female_loneliness.rds")
+saveRDS(results_male_isolation,"results_male_isolation.rds")
+saveRDS(results_male_loneliness,"results_male_loneliness.rds")
+
+library(cmprsk)
+library(dplyr)
+aaa_doubt <- data
+
+FineGraySubgroup <- function(
+    data,
+    group_var = c("age_group", "Sex", "Income", "Education", "Employment", "Smoking_status", "Alcohol_status"),
+    covariates = c("Age", "Sex", "Race", "MAP", "BMI", "UK_Center", "Employment",
+                   "Education", "Smoking_status", "Alcohol_status", "Hand_grip",
+                   "day_exposure", "diet_score", "depress_mood", "sleep_score",
+                   "Townsend_deprivation_index", "Family_cancer", "Overall_health_rating", "Income"),
+    decimal.hr = 5,
+    decimal.pvalue = 5
+) {
+  # Compute delta_years if not present
+  if (!"delta_years" %in% colnames(data)) {
+    message("delta_years missing. Computing as age_event - age_entry.")
+    data$delta_years <- data$age_event - data$age_entry
+    data$delta_years <- pmax(data$delta_years, 0.001) # Ensure positive
+  }
+ 
+  # Validate data
+  if (!all(data$delta_years > 0, na.rm = TRUE)) {
+    warning("delta_years contains non-positive values, which may cause Fine-Gray model failure.")
+  }
+  if (!all(data$indicator %in% c(0, 1, 2:10), na.rm = TRUE)) {
+    warning("indicator should include 0 (censored), 1 (event of interest), and competing events (2+).")
+  }
+  if (!is.factor(data$isolation)) {
+    warning("isolation is not a factor. Converting to factor.")
+    data$isolation <- as.factor(data$isolation)
+  }
+ 
+  # Initialize results
+  results <- data.frame(
+    Subgroup = character(),
+    Level = character(),
+    N = numeric(),
+    Events = numeric(),
+    sHR = numeric(),
+    CI_lower = numeric(),
+    CI_upper = numeric(),
+    P_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+ 
+  # Loop over subgroup variables
+  for (subgroup in group_var) {
+    levels_subgroup <- unique(na.omit(data[[subgroup]]))
+   
+    for (level in levels_subgroup) {
+      # Filter data for the subgroup level
+      filter_expr <- paste0(subgroup, " == '", level, "'")
+      data_subset <- data %>% filter(eval(parse(text = filter_expr))) %>% na.omit()
+     
+      # Count observations and events (event of interest = 1)
+      n_total <- nrow(data_subset)
+      n_events <- sum(data_subset$indicator == 1, na.rm = TRUE)
+     
+      # Exclude subgroup variable from covariates to avoid collinearity
+      covars <- setdiff(covariates, subgroup)
+     
+      # Run Fine-Gray model using calculate_fg
+      fg_result <- calculate_fg(
+        data = data,
+        filter_expr = filter_expr,
+        group_var = "isolation",
+        covariates = covars
+      )
+     
+      # Append results
+      results <- rbind(
+        results,
+        data.frame(
+          Subgroup = subgroup,
+          Level = as.character(level),
+          N = n_total,
+          Events = n_events,
+          sHR = round(fg_result$sHR, decimal.hr),
+          CI_lower = round(fg_result$CI_lower, decimal.hr),
+          CI_upper = round(fg_result$CI_upper, decimal.hr),
+          P_value = round(fg_result$p_value, decimal.pvalue),
+          stringsAsFactors = FALSE
+        )
+      )
+    }
+  }
+ 
+  return(results)
+}
+
+# Modified calculate_fg (using delta_years)
+calculate_fg <- function(data, filter_expr, group_var, covariates) {
+  data_filtered <- data %>% filter(eval(parse(text = filter_expr))) %>% na.omit()
+  formula <- as.formula(paste("Crisk(delta_years, indicator) ~", paste(c(group_var, covariates), collapse = " + ")))
+  fg_model <- tryCatch(
+    fastCrr(formula, data = data_filtered, variance = TRUE),
+    error = function(e) {
+      message("Fine-Gray error for ", filter_expr, ": ", e$message)
+      NULL
+    }
+  )
+  if (is.null(fg_model)) {
+    return(list(sHR = NA, CI_lower = NA, CI_upper = NA, p_value = NA))
+  }
+  sHR <- exp(fg_model$coef[1])
+  SE_log_sHR <- sqrt(fg_model$var[1, 1])
+  CI_lower <- exp(fg_model$coef[1] - 1.96 * SE_log_sHR)
+  CI_upper <- exp(fg_model$coef[1] + 1.96 * SE_log_sHR)
+  p_value <- 2 * (1 - pnorm(abs(fg_model$coef[1] / SE_log_sHR)))
+  list(sHR = sHR, CI_lower = CI_lower, CI_upper = CI_upper, p_value = p_value)
+}
+
+# Ensure delta_years is present
+aaa_doubt$delta_years <- pmax(aaa_doubt$delta_years, 0.001)
+
+# Run Fine-Gray model
+fg_results <- FineGraySubgroup(
+  data = aaa_doubt,
+  group_var = c("age_group", "Sex", "Income", "Education", "Employment", "Smoking_status", "Alcohol_status")
+)
+print(fg_results)
+saveRDS(fg_results, "subgroup_cmp_isolation.rds")
+
+library(cmprsk)
+library(dplyr)
+aaa_doubt <- data
+
+FineGraySubgroup <- function(
+    data,
+    group_var = c("age_group", "Sex", "Income", "Education", "Employment", "Smoking_status", "Alcohol_status"),
+    covariates = c("Age", "Sex", "Race", "MAP", "BMI", "UK_Center", "Employment",
+                   "Education", "Smoking_status", "Alcohol_status", "Hand_grip",
+                   "day_exposure", "diet_score", "depress_mood", "sleep_score",
+                   "Townsend_deprivation_index", "Family_cancer", "Overall_health_rating", "Income"),
+    decimal.hr = 5,
+    decimal.pvalue = 5
+) {
+  # Compute delta_years if not present
+  if (!"delta_years" %in% colnames(data)) {
+    message("delta_years missing. Computing as age_event - age_entry.")
+    data$delta_years <- data$age_event - data$age_entry
+    data$delta_years <- pmax(data$delta_years, 0.001) # Ensure positive
+  }
+ 
+  # Validate data
+  if (!all(data$delta_years > 0, na.rm = TRUE)) {
+    warning("delta_years contains non-positive values, which may cause Fine-Gray model failure.")
+  }
+  if (!all(data$indicator %in% c(0, 1, 2:10), na.rm = TRUE)) {
+    warning("indicator should include 0 (censored), 1 (event of interest), and competing events (2+).")
+  }
+  if (!is.factor(data$loneliness)) {
+    warning("loneliness is not a factor. Converting to factor.")
+    data$loneliness <- as.factor(data$loneliness)
+  }
+ 
+  # Initialize results
+  results <- data.frame(
+    Subgroup = character(),
+    Level = character(),
+    N = numeric(),
+    Events = numeric(),
+    sHR = numeric(),
+    CI_lower = numeric(),
+    CI_upper = numeric(),
+    P_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+ 
+  # Loop over subgroup variables
+  for (subgroup in group_var) {
+    levels_subgroup <- unique(na.omit(data[[subgroup]]))
+   
+    for (level in levels_subgroup) {
+      # Filter data for the subgroup level
+      filter_expr <- paste0(subgroup, " == '", level, "'")
+      data_subset <- data %>% filter(eval(parse(text = filter_expr))) %>% na.omit()
+     
+      # Count observations and events (event of interest = 1)
+      n_total <- nrow(data_subset)
+      n_events <- sum(data_subset$indicator == 1, na.rm = TRUE)
+     
+      # Exclude subgroup variable from covariates to avoid collinearity
+      covars <- setdiff(covariates, subgroup)
+     
+      # Run Fine-Gray model using calculate_fg
+      fg_result <- calculate_fg(
+        data = data,
+        filter_expr = filter_expr,
+        group_var = "loneliness",
+        covariates = covars
+      )
+     
+      # Append results
+      results <- rbind(
+        results,
+        data.frame(
+          Subgroup = subgroup,
+          Level = as.character(level),
+          N = n_total,
+          Events = n_events,
+          sHR = round(fg_result$sHR, decimal.hr),
+          CI_lower = round(fg_result$CI_lower, decimal.hr),
+          CI_upper = round(fg_result$CI_upper, decimal.hr),
+          P_value = round(fg_result$p_value, decimal.pvalue),
+          stringsAsFactors = FALSE
+        )
+      )
+    }
+  }
+ 
+  return(results)
+}
+
+# Modified calculate_fg (using delta_years)
+calculate_fg <- function(data, filter_expr, group_var, covariates) {
+  data_filtered <- data %>% filter(eval(parse(text = filter_expr))) %>% na.omit()
+  formula <- as.formula(paste("Crisk(delta_years, indicator) ~", paste(c(group_var, covariates), collapse = " + ")))
+  fg_model <- tryCatch(
+    fastCrr(formula, data = data_filtered, variance = TRUE),
+    error = function(e) {
+      message("Fine-Gray error for ", filter_expr, ": ", e$message)
