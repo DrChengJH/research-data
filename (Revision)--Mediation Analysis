@@ -1,0 +1,79 @@
+library(dplyr)
+library(survival)
+library(cmprsk)
+library(mediation)  # For counterfactual mediation analysis (Valeri & VanderWeele, 2013)
+library(forestplot)  # For forest plots
+library(flextable)
+library(officer)
+library(openxlsx)
+library(reshape2)
+library(ggplot2)
+library(ggdag)
+library(dagitty)
+
+# Set working directory
+setwd("E:/Desktop/analysis/origin data/origin")
+
+# Load data for hormone mediators (female-specific)
+mediators_female <- read.csv("jiahao_participant.csv")
+female <- filter(incident, Sex == "Female")
+mediators_female_final <- mediators_female[,c(1,6,10,12,16,20)]
+female_mediators <- merge(female, mediators_female_final)
+names(female_mediators)[names(female_mediators) == "Had.menopause...Instance.0"] <- "Had_Menopause"
+names(female_mediators)[names(female_mediators) == "SHBG...Instance.0"] <- "SHBG"
+names(female_mediators)[names(female_mediators) == "Oestradiol...Instance.0"] <- "Oestradiol"
+names(female_mediators)[names(female_mediators) == "Ever.used.hormone.replacement.therapy..HRT....Instance.0"] <- "Ever_Used_HRT"
+names(female_mediators)[names(female_mediators) == "Age.when.periods.started..menarche....Instance.0"] <- "Age_Menarche"
+str(female_mediators)
+table(female_mediators$Had_Menopause)
+female_mediators <- female_mediators %>%
+  mutate(Had_Menopause = case_when(
+    Had_Menopause == "Not sure - had a hysterectomy" ~ "hysterectomy",
+    Had_Menopause == "No" ~ "No",
+    Had_Menopause == "Yes" ~ "Yes",
+    TRUE ~ "Others"
+  ))
+table(female_mediators$Had_Menopause, useNA = "ifany")
+female_mediators$Had_Menopause <- as.factor(female_mediators$Had_Menopause)
+## Ever_Used_HRT
+table(female_mediators$Ever_Used_HRT)
+female_mediators <- female_mediators %>%
+  mutate(Ever_Used_HRT = case_when(
+    Ever_Used_HRT == "No" ~ "No",
+    Ever_Used_HRT == "Yes" ~ "Yes",
+    TRUE ~ "Others"
+  ))
+table(female_mediators$Ever_Used_HRT, useNA = "ifany")
+female_mediators$Ever_Used_HRT <- as.factor(female_mediators$Ever_Used_HRT)
+## Age_Menarche
+table(female_mediators$Age_Menarche, useNA = "ifany")
+female_mediators$Age_Menarche <- as.numeric(female_mediators$Age_Menarche)
+
+# Create dummy variables for categorical mediators
+mediator_vars <- c("Had_Menopause", "Ever_Used_HRT")
+dummy_data <- female_mediators
+incident_covariates <- female_mediators
+for (var in mediator_vars) {
+  if (is.factor(incident_covariates[[var]]) && nlevels(incident_covariates[[var]]) > 2) {
+    dummy_vars <- model.matrix(~ incident_covariates[[var]] - 1, data = incident_covariates)
+    colnames(dummy_vars) <- paste0(var, "_", levels(incident_covariates[[var]]))
+    dummy_data <- cbind(dummy_data, dummy_vars)
+    dummy_data[[var]] <- NULL
+  }
+}
+summary(dummy_data$Oestradiol)
+str(dummy_data)
+mediator_vars <- c("SHBG", "Oestradiol", "Age_Menarche",
+                   "Had_Menopause_hysterectomy", "Had_Menopause_No", "Had_Menopause_Others",
+                   "Had_Menopause_Yes", "Ever_Used_HRT_No", "Ever_Used_HRT_Others", "Ever_Used_HRT_Yes")
+
+# Save hormone mediator data
+setwd("E:/Desktop/analysis/mediation")
+saveRDS(dummy_data, "hormone_mediator.rds")
+
+# Load inflammation mediators
+setwd("E:/Desktop/analysis/origin data/origin")
+mediatior <- read.xlsx("Immune and inflammatory mediators.xlsx")
+inflammation_mediators <- merge(incident, mediatior)
+names(inflammation_mediators)[names(inflammation_mediators) == "Lymphocyte.count...Instance.0"] <- "Lym"
+names(inflammation_mediators)[names(inflammation_mediators)
