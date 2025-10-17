@@ -1,0 +1,310 @@
+library(dplyr)
+library(survival)
+library(cmprsk)
+data <- readRDS("cmp_incident.rds")
+data_original <- data
+data_try <- data
+data_try$indicator[data_try$indicator == 2] <- 0
+table(data_try$indicator)
+# Define groups and corresponding filter expressions
+combinations <- list(
+  list(group = "isolation", expr = "TRUE", var = "isolation"),
+  list(group = "loneliness", expr = "TRUE", var = "loneliness")
+)
+# Initialize result table, all columns as character to avoid type mismatch errors
+result_table <- data.frame(
+  Group = character(),
+  Exposure = character(),
+  N = character(),
+  Incident = character(),
+  Cases = character(),
+  Person_Years = character(),
+  Incident_Per_10000_Person_Years = character(),
+  `5-year CIF(%)` = character(),
+  IRR = character(),
+  Excess_Incidence = character(),
+  stringsAsFactors = FALSE
+)
+# Define function to calculate excess incidence and confidence intervals
+calculate_excess_incidence <- function(cases_exposed, person_years_exposed, cases_unexposed, person_years_unexposed) {
+  incidence_exposed <- (cases_exposed / person_years_exposed) * 10000
+  incidence_unexposed <- (cases_unexposed / person_years_unexposed) * 10000
+  excess_incidence <- incidence_exposed - incidence_unexposed
+  SE <- sqrt((incidence_exposed / cases_exposed) + (incidence_unexposed / cases_unexposed))
+  lower_CI <- excess_incidence - 1.96 * SE
+  upper_CI <- excess_incidence + 1.96 * SE
+  list(excess_incidence = excess_incidence, lower_CI = lower_CI, upper_CI = upper_CI)
+}
+# Process data
+for (comb in combinations) {
+  group_name <- comb$group
+  filter_expr <- comb$expr
+  group_var <- comb$var
+ 
+  # Calculate overall data (IRR part using data_try)
+  data_filter_try <- data_try %>% dplyr::filter(eval(parse(text = filter_expr)))
+  N <- nrow(data_filter_try)
+  cases <- sum(data_filter_try$indicator)
+  person_years <- sum(data_filter_try$delta_years)
+  incident_per_10000_person_years <- round((cases / person_years) * 10000, 0)
+ 
+  # Calculate overall CIF (using data_original)
+  data_filter_orig <- data_original %>% dplyr::filter(eval(parse(text = filter_expr)))
+  if (nrow(data_filter_orig) > 0) {
+    ftime_o <- data_filter_orig$delta_years
+    fstatus_o <- factor(data_filter_orig$indicator, levels = c(0, 1, 2), labels = c("cens", "event", "comp"))
+    fit_o <- cuminc(ftime = ftime_o, fstatus = fstatus_o)
+    cif_5_o <- ifelse(is.null(fit_o$`event`), 0, summary(fit_o, times = 5)$P[1, "est"] * 100)
+    cif_str_o <- paste0(round(cif_5_o, 2), "%")
+  } else {
+    cif_str_o <- "NA"
+  }
+ 
+  # Add overall information
+  result_table <- rbind(result_table, data.frame(
+    Group = group_name,
+    Exposure = "",
+    N = as.character(N),
+    Incident = as.character(cases),
+    Cases = as.character(cases),
+    Person_Years = as.character(round(person_years, 1)),
+    Incident_Per_10000_Person_Years = as.character(incident_per_10000_person_years),
+    `5-year CIF(%)` = cif_str_o,
+    IRR = "",
+    Excess_Incidence = "",
+    stringsAsFactors = FALSE
+  ))
+ 
+  # Calculate control group data (unexposed)
+  data_unexposed_try <- data_try %>% dplyr::filter(eval(parse(text = filter_expr)) & !!sym(group_var) == "1" == FALSE)
+  N_unexposed <- nrow(data_unexposed_try)
+  cases_unexposed <- sum(data_unexposed_try$indicator)
+  person_years_unexposed <- sum(data_unexposed_try$delta_years)
+  incident_per_10000_person_years_unexposed <- round((cases_unexposed / person_years_unexposed) * 10000, 0)
+ 
+  # Calculate control group CIF
+  data_unexposed_orig <- data_original %>% dplyr::filter(eval(parse(text = filter_expr)) & !!sym(group_var) == "1" == FALSE)
+  if (nrow(data_unexposed_orig) > 0) {
+    ftime_un <- data_unexposed_orig$delta_years
+    fstatus_un <- factor(data_unexposed_orig$indicator, levels = c(0, 1, 2), labels = c("cens", "event", "comp"))
+    fit_un <- cuminc(ftime = ftime_un, fstatus = fstatus_un)
+    cif_5_un <- ifelse(is.null(fit_un$`event`), 0, summary(fit_un, times = 5)$P[1, "est"] * 100)
+    cif_str_un <- paste0(round(cif_5_un, 2), "%")
+  } else {
+    cif_str_un <- "NA"
+  }
+ 
+  # Add reference group data
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Exposure = "unexpose",
+    N = as.character(N_unexposed),
+    Incident = as.character(cases_unexposed),
+    Cases = as.character(cases_unexposed),
+    Person_Years = as.character(round(person_years_unexposed, 1)),
+    Incident_Per_10000_Person_Years = as.character(incident_per_10000_person_years_unexposed),
+    `5-year CIF(%)` = cif_str_un,
+    IRR = "1 [Reference]",
+    Excess_Incidence = "0 [Reference]",
+    stringsAsFactors = FALSE
+  ))
+ 
+  # Calculate exposed group data
+  data_exposed_try <- data_try %>% dplyr::filter(eval(parse(text = filter_expr)) & !!sym(group_var) == "1")
+  N_exposed <- nrow(data_exposed_try)
+  cases_exposed <- sum(data_exposed_try$indicator)
+  person_years_exposed <- sum(data_exposed_try$delta_years)
+  incident_per_10000_person_years_exposed <- round((cases_exposed / person_years_exposed) * 10000, 0)
+ 
+  # Calculate exposed group CIF
+  data_exposed_orig <- data_original %>% dplyr::filter(eval(parse(text = filter_expr)) & !!sym(group_var) == "1")
+  if (nrow(data_exposed_orig) > 0) {
+    ftime_exp <- data_exposed_orig$delta_years
+    fstatus_exp <- factor(data_exposed_orig$indicator, levels = c(0, 1, 2), labels = c("cens", "event", "comp"))
+    fit_exp <- cuminc(ftime = ftime_exp, fstatus = fstatus_exp)
+    cif_5_exp <- ifelse(is.null(fit_exp$`event`), 0, summary(fit_exp, times = 5)$P[1, "est"] * 100)
+    cif_str_exp <- paste0(round(cif_5_exp, 2), "%")
+  } else {
+    cif_str_exp <- "NA"
+  }
+ 
+  # Calculate IRR
+  if (person_years_exposed > 0 & person_years_unexposed > 0 & cases_exposed > 0 & cases_unexposed > 0) {
+    incidence_exposed <- (cases_exposed / person_years_exposed) * 10000
+    incidence_unexposed <- (cases_unexposed / person_years_unexposed) * 10000
+    IRR_val <- incidence_exposed / incidence_unexposed
+    SE_log_IRR <- sqrt((1 / cases_exposed) + (1 / cases_unexposed))
+    log_IRR <- log(IRR_val)
+    lower_log_CI <- log_IRR - 1.96 * SE_log_IRR
+    upper_log_CI <- log_IRR + 1.96 * SE_log_IRR
+    lower_CI <- exp(lower_log_CI)
+    upper_CI <- exp(upper_log_CI)
+    irr_str <- paste0(round(IRR_val, 2), " (", round(lower_CI, 2), " to ", round(upper_CI, 2), ")")
+  } else {
+    irr_str <- "NA"
+  }
+ 
+  # Calculate excess incidence and confidence interval
+  if (cases_exposed > 0 & cases_unexposed > 0 & person_years_exposed > 0 & person_years_unexposed > 0) {
+    excess_incidence_results <- calculate_excess_incidence(cases_exposed, person_years_exposed, cases_unexposed, person_years_unexposed)
+    excess_str <- paste0(round(excess_incidence_results$excess_incidence, 2), " (", round(excess_incidence_results$lower_CI, 2), " to ", round(excess_incidence_results$upper_CI, 2), ")")
+  } else {
+    excess_str <- "NA"
+  }
+ 
+  # Add exposed group data
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Exposure = "expose",
+    N = as.character(N_exposed),
+    Incident = as.character(cases_exposed),
+    Cases = as.character(cases_exposed),
+    Person_Years = as.character(round(person_years_exposed, 1)),
+    Incident_Per_10000_Person_Years = as.character(incident_per_10000_person_years_exposed),
+    `5-year CIF(%)` = cif_str_exp,
+    IRR = irr_str,
+    Excess_Incidence = excess_str,
+    stringsAsFactors = FALSE
+  ))
+}
+# Add joint effect empty row
+result_table <- rbind(result_table, data.frame(
+  Group = "Joint effect",
+  Exposure = "",
+  N = "",
+  Incident = "",
+  Cases = "",
+  Person_Years = "",
+  Incident_Per_10000_Person_Years = "",
+  `5-year CIF(%)` = "",
+  IRR = "",
+  Excess_Incidence = "",
+  stringsAsFactors = FALSE
+))
+# Add exposure_count to data_try and data_original
+data_try <- data_try %>%
+  mutate(
+    isolation_num = as.numeric(as.character(isolation)),
+    loneliness_num = as.numeric(as.character(loneliness)),
+    exposure_count = case_when(
+      isolation_num == 1 & loneliness_num == 1 ~ 4,
+      isolation_num == 1 & loneliness_num == 0 ~ 3,
+      isolation_num == 0 & loneliness_num == 1 ~ 2,
+      isolation_num == 0 & loneliness_num == 0 ~ 1
+    )
+  )
+data_original <- data_original %>%
+  mutate(
+    isolation_num = as.numeric(as.character(isolation)),
+    loneliness_num = as.numeric(as.character(loneliness)),
+    exposure_count = case_when(
+      isolation_num == 1 & loneliness_num == 1 ~ 4,
+      isolation_num == 1 & loneliness_num == 0 ~ 3,
+      isolation_num == 0 & loneliness_num == 1 ~ 2,
+      isolation_num == 0 & loneliness_num == 0 ~ 1
+    )
+  )
+# Define joint groups
+jointcombine <- list(
+  list(group = "No isolation in no loneliness", expr = 1),
+  list(group = "No isolation in loneliness", expr = 2),
+  list(group = "Isolation in no loneliness", expr = 3),
+  list(group = "Isolation in loneliness", expr = 4)
+)
+# Calculate reference group (exposure_count == 1)
+data_un_try <- filter(data_try, exposure_count == 1)
+N_un <- nrow(data_un_try)
+cases_un <- sum(data_un_try$indicator)
+person_years_un <- sum(data_un_try$delta_years)
+# Calculate reference group CIF
+data_un_orig <- filter(data_original, exposure_count == 1)
+if (nrow(data_un_orig) > 0) {
+  ftime_un_joint <- data_un_orig$delta_years
+  fstatus_un_joint <- factor(data_un_orig$indicator, levels = c(0, 1, 2), labels = c("cens", "event", "comp"))
+  fit_un_joint <- cuminc(ftime = ftime_un_joint, fstatus = fstatus_un_joint)
+  cif_5_un_joint <- ifelse(is.null(fit_un_joint$`event`), 0, summary(fit_un_joint, times = 5)$P[1, "est"] * 100)
+  cif_str_un_joint <- paste0(round(cif_5_un_joint, 2), "%")
+} else {
+  cif_str_un_joint <- "NA"
+}
+# Add reference group to result table
+incident_per_10000_un_joint <- round((cases_un / person_years_un) * 10000, 0)
+result_table <- rbind(result_table, data.frame(
+  Group = "",
+  Exposure = jointcombine[[1]]$group,
+  N = as.character(N_un),
+  Incident = as.character(cases_un),
+  Cases = as.character(cases_un),
+  Person_Years = as.character(round(person_years_un, 1)),
+  Incident_Per_10000_Person_Years = as.character(incident_per_10000_un_joint),
+  `5-year CIF(%)` = cif_str_un_joint,
+  IRR = "1 [Reference]",
+  Excess_Incidence = "0 [Reference]",
+  stringsAsFactors = FALSE
+))
+# Loop to calculate other joint groups
+for (i in 2:length(jointcombine)) {
+  var <- jointcombine[[i]]
+  exposure_name <- var$group
+  expr <- var$expr
+ 
+  data_try_group <- filter(data_try, exposure_count == expr)
+  N <- nrow(data_try_group)
+  cases <- sum(data_try_group$indicator)
+  person_years <- sum(data_try_group$delta_years)
+  incident_per_10000_person_years <- round((cases / person_years) * 10000, 0)
+ 
+  # Calculate CIF
+  data_orig_group <- filter(data_original, exposure_count == expr)
+  if (nrow(data_orig_group) > 0) {
+    ftime_g <- data_orig_group$delta_years
+    fstatus_g <- factor(data_orig_group$indicator, levels = c(0, 1, 2), labels = c("cens", "event", "comp"))
+    fit_g <- cuminc(ftime = ftime_g, fstatus = fstatus_g)
+    cif_5_g <- ifelse(is.null(fit_g$`event`), 0, summary(fit_g, times = 5)$P[1, "est"] * 100)
+    cif_str_g <- paste0(round(cif_5_g, 2), "%")
+  } else {
+    cif_str_g <- "NA"
+  }
+ 
+  # Calculate IRR
+  if (person_years > 0 & person_years_un > 0 & cases > 0 & cases_un > 0) {
+    incidence_exposed <- (cases / person_years) * 10000
+    incidence_unexposed <- (cases_un / person_years_un) * 10000
+    IRR_val <- incidence_exposed / incidence_unexposed
+    SE_log_IRR <- sqrt((1 / cases) + (1 / cases_un))
+    log_IRR <- log(IRR_val)
+    lower_log_CI <- log_IRR - 1.96 * SE_log_IRR
+    upper_log_CI <- log_IRR + 1.96 * SE_log_IRR
+    lower_CI <- exp(lower_log_CI)
+    upper_CI <- exp(upper_log_CI)
+    irr_str <- paste0(round(IRR_val, 2), " (", round(lower_CI, 2), " to ", round(upper_CI, 2), ")")
+  } else {
+    irr_str <- "NA"
+  }
+ 
+  # Calculate excess incidence
+  if (cases > 0 & cases_un > 0 & person_years > 0 & person_years_un > 0) {
+    excess_incidence_results <- calculate_excess_incidence(cases, person_years, cases_un, person_years_un)
+    excess_str <- paste0(round(excess_incidence_results$excess_incidence, 2), " (", round(excess_incidence_results$lower_CI, 2), " to ", round(excess_incidence_results$upper_CI, 2), ")")
+  } else {
+    excess_str <- "NA"
+  }
+ 
+  # Add to result table
+  result_table <- rbind(result_table, data.frame(
+    Group = "",
+    Exposure = exposure_name,
+    N = as.character(N),
+    Incident = as.character(cases),
+    Cases = as.character(cases),
+    Person_Years = as.character(round(person_years, 1)),
+    Incident_Per_10000_Person_Years = as.character(incident_per_10000_person_years),
+    `5-year CIF(%)` = cif_str_g,
+    IRR = irr_str,
+    Excess_Incidence = excess_str,
+    stringsAsFactors = FALSE
+  ))
+}
+# Print result table
+print(result_table)
+result_table
